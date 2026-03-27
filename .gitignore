@@ -1,0 +1,3 @@
+﻿AuditLogs/*.csv
+AuditLogs/*.log
+*.tmp
