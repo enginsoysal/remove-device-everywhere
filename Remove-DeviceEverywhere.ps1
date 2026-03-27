@@ -1097,7 +1097,7 @@ $form.MinimumSize = New-Object System.Drawing.Size(900, 600)
 $form.StartPosition = 'CenterScreen'
 $form.BackColor = [System.Drawing.Color]::FromArgb(245, 247, 250)
 
-# â”€â”€ MenuStrip definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# MenuStrip definitions
 $menuStrip = New-Object System.Windows.Forms.MenuStrip
 $menuStrip.Dock = 'Fill'
 
@@ -1144,7 +1144,7 @@ $helpMenu.DropDownItems.AddRange(@(
 [void]$menuStrip.Items.Add($helpMenu)
 $form.MainMenuStrip = $menuStrip
 
-# â”€â”€ Outer TableLayoutPanel: 4 rows (menu / title / connect bar / tabs) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Outer TableLayoutPanel: 4 rows (menu / title / connect bar / tabs)
 $formLayout = New-Object System.Windows.Forms.TableLayoutPanel
 $formLayout.Dock = 'Fill'
 $formLayout.ColumnCount = 1
@@ -1158,14 +1158,14 @@ $formLayout.Padding = New-Object System.Windows.Forms.Padding(0)
 $formLayout.Margin  = New-Object System.Windows.Forms.Padding(0)
 $form.Controls.Add($formLayout)
 
-# â”€â”€ Row 0: menustrip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Row 0: menustrip
 $menuPanel = New-Object System.Windows.Forms.Panel
 $menuPanel.Dock = 'Fill'
 $menuPanel.Margin = New-Object System.Windows.Forms.Padding(0)
 $menuPanel.Controls.Add($menuStrip)
 $formLayout.Controls.Add($menuPanel, 0, 0)
 
-# â”€â”€ Row 1: title â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Row 1: title
 $titlePanel = New-Object System.Windows.Forms.Panel
 $titlePanel.Dock = 'Fill'
 $titlePanel.BackColor = [System.Drawing.Color]::FromArgb(245, 247, 250)
@@ -1180,7 +1180,7 @@ $titleLabel.TextAlign = 'MiddleLeft'
 $titleLabel.Padding = New-Object System.Windows.Forms.Padding(12, 0, 0, 0)
 $titlePanel.Controls.Add($titleLabel)
 
-# â”€â”€ Row 2: connect bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Row 2: connect bar
 $connectBarPanel = New-Object System.Windows.Forms.Panel
 $connectBarPanel.Dock = 'Fill'
 $connectBarPanel.BackColor = [System.Drawing.Color]::FromArgb(230, 233, 240)
@@ -1210,16 +1210,16 @@ $statusLabel.Text = 'Status: Not connected'
 $statusLabel.Anchor = 'Left,Right,Top'
 $connectBarPanel.Controls.Add($statusLabel)
 
-# â”€â”€ Row 3: TabControl (Dock=Fill, scales with window) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Row 3: TabControl (Dock=Fill, scales with window)
 $tabControl = New-Object System.Windows.Forms.TabControl
 $tabControl.Dock = 'Fill'
 $tabControl.Font = New-Object System.Drawing.Font('Segoe UI', 10)
 $tabControl.Margin = New-Object System.Windows.Forms.Padding(0)
 $formLayout.Controls.Add($tabControl, 0, 3)
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-#  TAB 1 â€” Single device search
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# 
+# TAB 1 - Single device search
+# 
 $tab1 = New-Object System.Windows.Forms.TabPage
 $tab1.Text = '  Single Device Search  '
 $tab1.BackColor = [System.Drawing.Color]::FromArgb(245, 247, 250)
@@ -1243,7 +1243,7 @@ $tab1Layout.Padding = New-Object System.Windows.Forms.Padding(8, 6, 8, 6)
 $tab1Layout.Margin  = New-Object System.Windows.Forms.Padding(0)
 $tab1.Controls.Add($tab1Layout)
 
-# â€” Row 0: search bar â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”
+# Row 0: search bar
 $searchPanel = New-Object System.Windows.Forms.Panel
 $searchPanel.Dock = 'Fill'
 $searchPanel.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 4)
@@ -1317,7 +1317,7 @@ $positionTab1Controls = {
 $searchPanel.Add_Resize($positionTab1Controls)
 $searchPanel.Add_Layout($positionTab1Controls)
 
-# â€” Row 1: checkbox â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”
+# Row 1: checkbox
 $linkedCleanupCheckBox = New-Object System.Windows.Forms.CheckBox
 $linkedCleanupCheckBox.Text = 'Also remove linked records with the same serial or Azure device ID'
 $linkedCleanupCheckBox.Checked = $true
@@ -1325,7 +1325,7 @@ $linkedCleanupCheckBox.Dock = 'Fill'
 $linkedCleanupCheckBox.Margin = New-Object System.Windows.Forms.Padding(0)
 $tab1Layout.Controls.Add($linkedCleanupCheckBox, 0, 1)
 
-# â€” Row 2: results grid (48% of variable height) â€”â€”â€”â€”â€”â€”
+# Row 2: results grid (48% of variable height)
 $grid = New-Object System.Windows.Forms.DataGridView
 $grid.Dock = 'Fill'
 $grid.BackgroundColor = [System.Drawing.Color]::White
@@ -1340,7 +1340,7 @@ $grid.AutoGenerateColumns = $true
 $grid.Margin = New-Object System.Windows.Forms.Padding(0, 4, 0, 4)
 $tab1Layout.Controls.Add($grid, 0, 2)
 
-# â€” Row 3: preview label â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”
+# Row 3: preview label
 $previewLabel = New-Object System.Windows.Forms.Label
 $previewLabel.Text = 'Removal Preview: Select one or more results to see exactly what will be deleted'
 $previewLabel.Dock = 'Fill'
@@ -1348,7 +1348,7 @@ $previewLabel.TextAlign = 'MiddleLeft'
 $previewLabel.Margin = New-Object System.Windows.Forms.Padding(0)
 $tab1Layout.Controls.Add($previewLabel, 0, 3)
 
-# â€” Row 4: preview grid (22% of variable height) â€”â€”â€”â€”â€”â€”â€”
+# Row 4: preview grid (22% of variable height)
 $previewGrid = New-Object System.Windows.Forms.DataGridView
 $previewGrid.Dock = 'Fill'
 $previewGrid.BackgroundColor = [System.Drawing.Color]::White
@@ -1363,7 +1363,7 @@ $previewGrid.AutoGenerateColumns = $true
 $previewGrid.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 4)
 $tab1Layout.Controls.Add($previewGrid, 0, 4)
 
-# â€” Row 5: log label â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”
+# Row 5: log label
 $logLabel = New-Object System.Windows.Forms.Label
 $logLabel.Text = 'Activity log'
 $logLabel.Dock = 'Fill'
@@ -1371,7 +1371,7 @@ $logLabel.TextAlign = 'MiddleLeft'
 $logLabel.Margin = New-Object System.Windows.Forms.Padding(0)
 $tab1Layout.Controls.Add($logLabel, 0, 5)
 
-# â€” Row 6: log textbox (30% of variable height) â€”â€”â€”â€”â€”â€”â€”â€”
+# Row 6: log textbox (30% of variable height)
 $logTextBox = New-Object System.Windows.Forms.TextBox
 $logTextBox.Dock = 'Fill'
 $logTextBox.Multiline = $true
@@ -1381,9 +1381,9 @@ $logTextBox.Font = New-Object System.Drawing.Font('Consolas', 10)
 $logTextBox.Margin = New-Object System.Windows.Forms.Padding(0)
 $tab1Layout.Controls.Add($logTextBox, 0, 6)
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-#  TAB 2 â€” Bulk Operations
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# 
+# TAB 2 - Bulk Operations
+# 
 $tab2 = New-Object System.Windows.Forms.TabPage
 $tab2.Text = '  Bulk Operations  '
 $tab2.BackColor = [System.Drawing.Color]::FromArgb(245, 247, 250)
@@ -1405,7 +1405,7 @@ $tab2Layout.Padding = New-Object System.Windows.Forms.Padding(8, 6, 8, 6)
 $tab2Layout.Margin  = New-Object System.Windows.Forms.Padding(0)
 $tab2.Controls.Add($tab2Layout)
 
-# â€” Row 0: input panel â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”
+# Row 0: input panel
 $bulkInputPanel = New-Object System.Windows.Forms.TableLayoutPanel
 $bulkInputPanel.Dock = 'Fill'
 $bulkInputPanel.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 4)
@@ -1503,7 +1503,7 @@ $bulkLinkedCleanupCheckBox.Margin = New-Object System.Windows.Forms.Padding(0)
 $bulkRightLayout.SetColumnSpan($bulkLinkedCleanupCheckBox, 2)
 $bulkRightLayout.Controls.Add($bulkLinkedCleanupCheckBox, 0, 3)
 
-# â€” Row 1: results label â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”
+# Row 1: results label
 $bulkResultsLabel = New-Object System.Windows.Forms.Label
 $bulkResultsLabel.Text = 'Results: search to populate'
 $bulkResultsLabel.Dock = 'Fill'
@@ -1511,7 +1511,7 @@ $bulkResultsLabel.TextAlign = 'MiddleLeft'
 $bulkResultsLabel.Margin = New-Object System.Windows.Forms.Padding(0)
 $tab2Layout.Controls.Add($bulkResultsLabel, 0, 1)
 
-# â€” Row 2: bulk results grid (60% of variable height) â€”â€”
+# Row 2: bulk results grid (60% of variable height)
 $bulkGrid = New-Object System.Windows.Forms.DataGridView
 $bulkGrid.Dock = 'Fill'
 $bulkGrid.BackgroundColor = [System.Drawing.Color]::White
@@ -1526,7 +1526,7 @@ $bulkGrid.AutoGenerateColumns = $true
 $bulkGrid.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 4)
 $tab2Layout.Controls.Add($bulkGrid, 0, 2)
 
-# â€” Row 3: bulk log label â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”â€”
+# Row 3: bulk log label
 $bulkLogLabel = New-Object System.Windows.Forms.Label
 $bulkLogLabel.Text = 'Activity log'
 $bulkLogLabel.Dock = 'Fill'
@@ -1534,7 +1534,7 @@ $bulkLogLabel.TextAlign = 'MiddleLeft'
 $bulkLogLabel.Margin = New-Object System.Windows.Forms.Padding(0)
 $tab2Layout.Controls.Add($bulkLogLabel, 0, 3)
 
-# â€” Row 4: bulk log textbox (40% of variable height) â€”â€”
+# Row 4: bulk log textbox (40% of variable height)
 $bulkLogTextBox = New-Object System.Windows.Forms.TextBox
 $bulkLogTextBox.Dock = 'Fill'
 $bulkLogTextBox.Multiline = $true
@@ -1723,7 +1723,7 @@ $searchTextBox.Add_KeyDown({
     }
 })
 
-# â”€â”€ Bulk tab event handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Bulk tab event handlers
 
 $bulkLoadFileButton.Add_Click({
     $ofd = New-Object System.Windows.Forms.OpenFileDialog
@@ -1849,7 +1849,7 @@ $bulkRemoveAllButton.Add_Click({
     $toDelete = @(Resolve-RemovalPlan -SeedRecords @($script:BulkAllResults) -AllRecords $script:BulkAllResults -ExpandLinked:$bulkLinkedCleanupCheckBox.Checked)
     $summary = ($toDelete | Select-Object -First 20 | ForEach-Object { "$($_.Source): $($_.DisplayName)" }) -join [Environment]::NewLine
     if ($toDelete.Count -gt 20) {
-        $summary += [Environment]::NewLine + "â€¦ and $($toDelete.Count - 20) more"
+        $summary += [Environment]::NewLine + "... and $($toDelete.Count - 20) more"
     }
 
     $confirmation = [System.Windows.Forms.MessageBox]::Show(
@@ -1908,7 +1908,7 @@ $bulkClearButton.Add_Click({
     $statusLabel.Text = 'Status: Bulk results cleared'
 })
 
-# â”€â”€ Menu handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Menu handlers
 $projectGitHubUrl = 'https://github.com/enginsoysal/'
 
 $fileLoadBulkInputMenuItem.Add_Click({
