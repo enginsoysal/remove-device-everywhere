@@ -1,6 +1,6 @@
 # Remove Device Everywhere
 
-![Single Device Search tab](screenshots/tab-single-device.png)
+![Single Device Search tab](screenshots/tab-single-device_With_Search.png)
 
 PowerShell GUI for searching and deleting matching device records across:
 
@@ -22,7 +22,7 @@ The GUI also includes:
 
 The **Bulk Operations** tab lets you load a CSV list of device names or serial numbers and remove them all in one run:
 
-![Bulk Operations tab](screenshots/tab-bulk-operations.png)
+![Bulk Operations tab](screenshots/tab-bulk-operations_With_Search.png)
 
 ## Prerequisites
 
