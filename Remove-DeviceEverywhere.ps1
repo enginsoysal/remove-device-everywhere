@@ -1810,9 +1810,9 @@ $linkedCleanupCheckBox.Add_CheckedChanged({
 })
 
 $searchTextBox.Add_KeyDown({
-    param($keySender, $keyEventArgs)
+    param($sender, $keyEventArgs)
 
-    if ($keyEventArgs.KeyCode -eq [System.Windows.Forms.Keys]::Enter -and $searchButton.Enabled) {
+    if ($sender.Enabled -and $keyEventArgs.KeyCode -eq [System.Windows.Forms.Keys]::Enter -and $searchButton.Enabled) {
         $searchButton.PerformClick()
         $keyEventArgs.SuppressKeyPress = $true
     }

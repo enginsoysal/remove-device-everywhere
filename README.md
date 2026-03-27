@@ -1,6 +1,14 @@
 # Remove Device Everywhere
 
-![Single Device Search tab](screenshots/tab-single-device_With_Search.png)
+## Single Device Search
+
+Default view:
+
+![Single Device Search tab](screenshots/tab-single-device.png)
+
+With a search filled in:
+
+![Single Device Search tab with search](screenshots/tab-single-device_With_Search.png)
 
 PowerShell GUI for searching and deleting matching device records across:
 
@@ -20,9 +28,17 @@ The GUI also includes:
 - A **Remove All Found** button for deleting every result returned by the current search
 - Automatic CSV audit logging for each delete attempt
 
-The **Bulk Operations** tab lets you load a CSV list of device names or serial numbers and remove them all in one run:
+## Bulk Operations
 
-![Bulk Operations tab](screenshots/tab-bulk-operations_With_Search.png)
+Default view:
+
+![Bulk Operations tab](screenshots/tab-bulk-operations.png)
+
+With a search file loaded:
+
+![Bulk Operations tab with search](screenshots/tab-bulk-operations_With_Search.png)
+
+The **Bulk Operations** tab lets you load a CSV list of device names or serial numbers and remove them all in one run.
 
 ## Prerequisites
 
