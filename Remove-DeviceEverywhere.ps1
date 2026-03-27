@@ -357,6 +357,24 @@ function Test-GuidString {
     return [guid]::TryParse($Value, [ref]$guid)
 }
 
+function Get-EmbeddedGuidValue {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Value
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+
+    $match = [regex]::Match($Value, '(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b')
+    if ($match.Success) {
+        return $match.Value
+    }
+
+    return $null
+}
+
 function Invoke-GraphGetPaged {
     param(
         [Parameter(Mandatory)]
@@ -449,6 +467,29 @@ function Get-GraphObject {
     }
 }
 
+function Confirm-GraphDeletion {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Uri,
+
+        [int]$MaxAttempts = 5,
+
+        [int]$DelayMilliseconds = 1500
+    )
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        if (-not (Get-GraphObject -Uri $Uri)) {
+            return $true
+        }
+
+        if ($attempt -lt $MaxAttempts) {
+            Start-Sleep -Milliseconds $DelayMilliseconds
+        }
+    }
+
+    return $false
+}
+
 function New-ResultObject {
     param(
         [Parameter(Mandatory)]
@@ -477,6 +518,35 @@ function New-ResultObject {
         DeleteUri       = $DeleteUri
         Details         = $Details
     }
+}
+
+function Find-ManagedDeviceMatchByRecordId {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SearchTerm
+    )
+
+    $recordId = Get-EmbeddedGuidValue -Value $SearchTerm
+    if (-not $recordId) {
+        return @()
+    }
+
+    $device = Get-GraphObject -Uri "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/$recordId"
+    if (-not $device) {
+        return @()
+    }
+
+    return @(
+        New-ResultObject -Source 'Intune Managed Device' `
+            -DisplayName $device.deviceName `
+            -SerialNumber $device.serialNumber `
+            -PrimaryUser $device.userPrincipalName `
+            -OperatingSystem $device.operatingSystem `
+            -RecordId $device.id `
+            -AzureDeviceId $device.azureADDeviceId `
+            -DeleteUri "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/$($device.id)" `
+            -Details "Agent: $($device.managementAgent); Direct managedDeviceId lookup"
+    )
 }
 
 function ConvertTo-NormalizedMatchValue {
@@ -771,6 +841,10 @@ function Search-DeviceEverywhere {
         Write-UiLog -TextBox $LogTextBox -Message 'No Intune match from direct Graph filter. Running local fallback scan...'
         $managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device fallback search' -Action { Find-ManagedDeviceMatchesFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     }
+    if (-not $managedMatches.Count) {
+        Write-UiLog -TextBox $LogTextBox -Message 'No Intune match from name or serial. Trying direct managedDeviceId lookup from the search text...'
+        $managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device ID lookup' -Action { Find-ManagedDeviceMatchByRecordId -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+    }
     Write-UiLog -TextBox $LogTextBox -Message "Intune managed device matches: $($managedMatches.Count)"
     foreach ($entry in $managedMatches) {
         [void]$script:SearchResults.Add($entry)
@@ -954,8 +1028,24 @@ function Remove-DeviceRecord {
         Remove-AutopilotAssignmentLink -Record $Record -LogTextBox $LogTextBox
     }
 
-    Invoke-MgGraphRequest -Method DELETE -Uri $Record.DeleteUri | Out-Null
-    Write-UiLog -TextBox $LogTextBox -Message "Deleted $($Record.Source): $($Record.DisplayName)"
+    try {
+        Invoke-MgGraphRequest -Method DELETE -Uri $Record.DeleteUri | Out-Null
+    }
+    catch {
+        if ($_.Exception.Message -match '404|NotFound') {
+            Write-UiLog -TextBox $LogTextBox -Message "$($Record.Source) already absent on delete call: $($Record.DisplayName)"
+            return 'AlreadyAbsent'
+        }
+
+        throw
+    }
+
+    if (-not (Confirm-GraphDeletion -Uri $Record.DeleteUri)) {
+        throw "Delete request completed for $($Record.Source): $($Record.DisplayName), but follow-up verification still found the record."
+    }
+
+    Write-UiLog -TextBox $LogTextBox -Message "Deleted $($Record.Source): $($Record.DisplayName) (verified)"
+    return 'Deleted'
 }
 
 function Update-GridData {
@@ -1071,9 +1161,14 @@ function Invoke-RemovalPlan {
 
     foreach ($record in $Records) {
         try {
-            Remove-DeviceRecord -Record $record -LogTextBox $LogTextBox
+            $removalState = Remove-DeviceRecord -Record $record -LogTextBox $LogTextBox
             [void]$script:SearchResults.Remove($record)
-            Write-AuditEntry -Record $record -Outcome 'Deleted' -Message 'Record deleted successfully.'
+            if ($removalState -eq 'AlreadyAbsent') {
+                Write-AuditEntry -Record $record -Outcome 'Deleted' -Message 'Record was already absent when delete was attempted.'
+            }
+            else {
+                Write-AuditEntry -Record $record -Outcome 'Deleted' -Message 'Record deleted successfully and verified absent.'
+            }
             $deletedCount++
         }
         catch {
