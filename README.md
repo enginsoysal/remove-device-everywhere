@@ -1,5 +1,7 @@
 # Remove Device Everywhere
 
+![Single Device Search tab](screenshots/tab-single-device.png)
+
 PowerShell GUI for searching and deleting matching device records across:
 
 - Intune managed devices
@@ -17,6 +19,10 @@ The GUI also includes:
 - A live **Removal Preview** grid that shows exactly which records will be deleted
 - A **Remove All Found** button for deleting every result returned by the current search
 - Automatic CSV audit logging for each delete attempt
+
+The **Bulk Operations** tab lets you load a CSV list of device names or serial numbers and remove them all in one run:
+
+![Bulk Operations tab](screenshots/tab-bulk-operations.png)
 
 ## Prerequisites
 
