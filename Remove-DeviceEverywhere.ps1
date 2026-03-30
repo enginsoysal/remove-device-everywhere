@@ -1202,11 +1202,16 @@ function Sync-GridData {
         return
     }
 
-    [object[]]$recordArray = @($Records)
-
     $bindingList = New-Object System.ComponentModel.BindingList[object]
-    foreach ($item in $recordArray) {
-        [void]$bindingList.Add($item)
+    if ($null -ne $Records) {
+        if ($Records -is [string] -or $Records -isnot [System.Collections.IEnumerable]) {
+            [void]$bindingList.Add($Records)
+        }
+        else {
+            foreach ($item in $Records) {
+                [void]$bindingList.Add($item)
+            }
+        }
     }
 
     $Grid.DataSource = $null
@@ -1278,7 +1283,7 @@ function Sync-PreviewData {
     }
 
     $script:PreviewResults.Clear()
-    [object[]]$selected = @(Get-SelectedRecord -Grid $SourceGrid)
+    $selected = Get-SelectedRecord -Grid $SourceGrid
 
     if (-not $selected.Count) {
         Sync-GridData -Grid $PreviewGrid -Records @()
@@ -1286,7 +1291,7 @@ function Sync-PreviewData {
         return
     }
 
-    [object[]]$plannedRecords = @(Resolve-RemovalPlan -SeedRecords $selected -AllRecords $script:SearchResults -ExpandLinked:$ExpandLinked)
+    $plannedRecords = Resolve-RemovalPlan -SeedRecords $selected -AllRecords $script:SearchResults -ExpandLinked:$ExpandLinked
     foreach ($record in $plannedRecords) {
         [void]$script:PreviewResults.Add($record)
     }
