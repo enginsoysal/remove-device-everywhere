@@ -1239,7 +1239,8 @@ function Sync-GridData {
         $deleteUriProperty = if ($item) { $item.PSObject.Properties['DeleteUri'] } else { $null }
         $detailsProperty = if ($item) { $item.PSObject.Properties['Details'] } else { $null }
 
-        $rowIndex = $Grid.Rows.Add()
+        $rowIndex = $Grid.Rows.Count
+        $Grid.RowCount = $rowIndex + 1
         $row = $Grid.Rows[$rowIndex]
         $row.Cells['Source'].Value = if ($sourceProperty) { [string]$sourceProperty.Value } else { '' }
         $row.Cells['DisplayName'].Value = if ($displayNameProperty) { [string]$displayNameProperty.Value } else { '' }
