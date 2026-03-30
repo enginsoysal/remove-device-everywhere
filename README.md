@@ -2,7 +2,7 @@
 
 **One GUI to find and remove device records across Intune, Entra ID, and Autopilot in minutes, not hours.**
 
-## 🚀 Problem
+## Problem
 
 Device cleanup is messy in real environments.
 
@@ -11,7 +11,7 @@ Device cleanup is messy in real environments.
 - Stale, duplicate, or orphaned records break admin workflows.
 - Manual cleanup is slow and error-prone.
 
-## ✅ Solution
+## Solution
 
 Remove Device Everywhere gives IT admins a single PowerShell GUI to search and remove matching records across:
 
@@ -21,7 +21,13 @@ Remove Device Everywhere gives IT admins a single PowerShell GUI to search and r
 
 You search once, review results, confirm, and clean up from one place.
 
-## 🖥 Features
+## Features
+
+Single Device Search:
+
+![Single Device Search tab](screenshots/tab-single-device.png)
+
+![Single Device Search tab with search](screenshots/tab-single-device_With_Search.png)
 
 - GUI-first workflow (no day-to-day terminal usage required)
 - Exact search by device name or serial number
@@ -32,7 +38,7 @@ You search once, review results, confirm, and clean up from one place.
 - Bulk mode using CSV input
 - Built-in CSV audit logging for traceability
 
-## ⚠️ Safety Notice
+## Safety Notice
 
 This tool performs **permanent deletions**.
 
@@ -40,7 +46,7 @@ This tool performs **permanent deletions**.
 - Use the preview and confirmation dialog carefully.
 - Validate search results before clicking remove.
 
-## 📦 Installation
+## Installation
 
 ### Option 1: PowerShell Gallery
 
@@ -65,7 +71,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\Remove-DeviceEverywhere.ps1
 ```
 
-## ▶️ Usage
+## Usage
 
 1. Launch the script.
 2. Click **Connect Graph** and complete sign-in.
@@ -74,7 +80,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 5. Remove selected records (or remove all found).
 6. Check audit log output.
 
-## 🔐 Permissions Required
+## Permissions Required
 
 Graph delegated permissions requested:
 
@@ -88,7 +94,7 @@ Required admin roles depend on scope, typically:
 - Cloud Device Administrator
 - Or another role with equivalent delete rights
 
-## 📊 Audit Logging
+## Audit Logging
 
 Every delete attempt is written to CSV in `AuditLogs`.
 
@@ -104,7 +110,13 @@ Each row includes:
 
 This gives you a clean operational trail for change tracking and review.
 
-## 📂 Bulk Operations
+## Bulk Operations
+
+Bulk Operations:
+
+![Bulk Operations tab](screenshots/tab-bulk-operations.png)
+
+![Bulk Operations tab with search](screenshots/tab-bulk-operations_With_Search.png)
 
 Bulk mode accepts CSV input (for device names or serials).
 
@@ -115,21 +127,21 @@ Bulk mode accepts CSV input (for device names or serials).
 
 Ideal for large cleanup jobs and migration waves.
 
-## 🧰 Prerequisites
+## Prerequisites
 
 - Windows PowerShell 5.1 or PowerShell 7 on Windows
 - Internet access to Microsoft Graph
 - Rights to install `Microsoft.Graph.Authentication` for current user
 - Account with appropriate Graph permissions and directory roles
 
-## 💡 Example Use Cases
+## Example Use Cases
 
 - Tenant cleanup after pilot/test devices
 - Migration projects with duplicate records
 - Removing stale hybrid/AAD-joined leftovers
 - Autopilot and Intune record cleanup before re-enrollment
 
-## 🤝 Contributing
+## Contributing
 
 Issues and pull requests are welcome.
 
@@ -137,7 +149,7 @@ Issues and pull requests are welcome.
 - Add/update tests when behavior changes.
 - Prefer clear admin-focused UX and safe defaults.
 
-## 📜 License
+## License
 
 MIT License. See `LICENSE`.
 
