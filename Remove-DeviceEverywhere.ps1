@@ -1202,26 +1202,70 @@ function Sync-GridData {
         return
     }
 
-    $bindingList = New-Object System.ComponentModel.BindingList[object]
+    $recordItems = New-Object System.Collections.Generic.List[object]
     if ($null -ne $Records) {
         if ($Records -is [string] -or $Records -isnot [System.Collections.IEnumerable]) {
-            [void]$bindingList.Add($Records)
+            [void]$recordItems.Add($Records)
         }
         else {
             foreach ($item in $Records) {
-                [void]$bindingList.Add($item)
+                [void]$recordItems.Add($item)
             }
         }
     }
 
+    $table = New-Object System.Data.DataTable
+    [void]$table.Columns.Add('Source', [string])
+    [void]$table.Columns.Add('DisplayName', [string])
+    [void]$table.Columns.Add('SerialNumber', [string])
+    [void]$table.Columns.Add('PrimaryUser', [string])
+    [void]$table.Columns.Add('OperatingSystem', [string])
+    [void]$table.Columns.Add('RecordId', [string])
+    [void]$table.Columns.Add('AzureDeviceId', [string])
+    [void]$table.Columns.Add('DeleteUri', [string])
+    [void]$table.Columns.Add('Details', [string])
+    [void]$table.Columns.Add('__Record', [object])
+
+    foreach ($item in $recordItems) {
+        $row = $table.NewRow()
+
+        $sourceProperty = if ($item) { $item.PSObject.Properties['Source'] } else { $null }
+        $displayNameProperty = if ($item) { $item.PSObject.Properties['DisplayName'] } else { $null }
+        $serialNumberProperty = if ($item) { $item.PSObject.Properties['SerialNumber'] } else { $null }
+        $primaryUserProperty = if ($item) { $item.PSObject.Properties['PrimaryUser'] } else { $null }
+        $operatingSystemProperty = if ($item) { $item.PSObject.Properties['OperatingSystem'] } else { $null }
+        $recordIdProperty = if ($item) { $item.PSObject.Properties['RecordId'] } else { $null }
+        $azureDeviceIdProperty = if ($item) { $item.PSObject.Properties['AzureDeviceId'] } else { $null }
+        $deleteUriProperty = if ($item) { $item.PSObject.Properties['DeleteUri'] } else { $null }
+        $detailsProperty = if ($item) { $item.PSObject.Properties['Details'] } else { $null }
+
+        $row['Source'] = if ($sourceProperty) { [string]$sourceProperty.Value } else { '' }
+        $row['DisplayName'] = if ($displayNameProperty) { [string]$displayNameProperty.Value } else { '' }
+        $row['SerialNumber'] = if ($serialNumberProperty) { [string]$serialNumberProperty.Value } else { '' }
+        $row['PrimaryUser'] = if ($primaryUserProperty) { [string]$primaryUserProperty.Value } else { '' }
+        $row['OperatingSystem'] = if ($operatingSystemProperty) { [string]$operatingSystemProperty.Value } else { '' }
+        $row['RecordId'] = if ($recordIdProperty) { [string]$recordIdProperty.Value } else { '' }
+        $row['AzureDeviceId'] = if ($azureDeviceIdProperty) { [string]$azureDeviceIdProperty.Value } else { '' }
+        $row['DeleteUri'] = if ($deleteUriProperty) { [string]$deleteUriProperty.Value } else { '' }
+        $row['Details'] = if ($detailsProperty) { [string]$detailsProperty.Value } else { '' }
+        $row['__Record'] = $item
+
+        [void]$table.Rows.Add($row)
+    }
+
     $Grid.DataSource = $null
-    $Grid.DataSource = [object]$bindingList
+    $dataView = $table.DefaultView
+    $Grid.DataSource = [object]$dataView
     foreach ($column in $Grid.Columns) {
         $column.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
     }
 
     if ($Grid.Columns['DeleteUri']) {
         $Grid.Columns['DeleteUri'].Visible = $false
+    }
+
+    if ($Grid.Columns['__Record']) {
+        $Grid.Columns['__Record'].Visible = $false
     }
 
     if ($Grid.Columns['RecordId']) {
@@ -1254,9 +1298,22 @@ function Get-SelectedRecord {
     $selected = New-Object System.Collections.Generic.List[object]
 
     foreach ($row in $Grid.SelectedRows) {
-        if ($row.DataBoundItem) {
-            [void]$selected.Add($row.DataBoundItem)
+        if (-not $row.DataBoundItem) {
+            continue
         }
+
+        if ($row.DataBoundItem -is [System.Data.DataRowView]) {
+            $boundRow = $row.DataBoundItem
+            if ($boundRow.Row.Table.Columns.Contains('__Record')) {
+                $originalRecord = $boundRow['__Record']
+                if ($originalRecord) {
+                    [void]$selected.Add($originalRecord)
+                    continue
+                }
+            }
+        }
+
+        [void]$selected.Add($row.DataBoundItem)
     }
 
     return $selected
