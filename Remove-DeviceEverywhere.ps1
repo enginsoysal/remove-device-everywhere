@@ -1239,19 +1239,19 @@ function Sync-GridData {
         $deleteUriProperty = if ($item) { $item.PSObject.Properties['DeleteUri'] } else { $null }
         $detailsProperty = if ($item) { $item.PSObject.Properties['Details'] } else { $null }
 
-        $rowIndex = $Grid.Rows.Count
-        $Grid.RowCount = $rowIndex + 1
-        $row = $Grid.Rows[$rowIndex]
-        $row.Cells['Source'].Value = if ($sourceProperty) { [string]$sourceProperty.Value } else { '' }
-        $row.Cells['DisplayName'].Value = if ($displayNameProperty) { [string]$displayNameProperty.Value } else { '' }
-        $row.Cells['SerialNumber'].Value = if ($serialNumberProperty) { [string]$serialNumberProperty.Value } else { '' }
-        $row.Cells['PrimaryUser'].Value = if ($primaryUserProperty) { [string]$primaryUserProperty.Value } else { '' }
-        $row.Cells['OperatingSystem'].Value = if ($operatingSystemProperty) { [string]$operatingSystemProperty.Value } else { '' }
-        $row.Cells['RecordId'].Value = if ($recordIdProperty) { [string]$recordIdProperty.Value } else { '' }
-        $row.Cells['AzureDeviceId'].Value = if ($azureDeviceIdProperty) { [string]$azureDeviceIdProperty.Value } else { '' }
-        $row.Cells['DeleteUri'].Value = if ($deleteUriProperty) { [string]$deleteUriProperty.Value } else { '' }
-        $row.Cells['Details'].Value = if ($detailsProperty) { [string]$detailsProperty.Value } else { '' }
+        $row = New-Object System.Windows.Forms.DataGridViewRow
+        $row.CreateCells($Grid)
+        $row.Cells[0].Value = if ($sourceProperty) { [string]$sourceProperty.Value } else { '' }
+        $row.Cells[1].Value = if ($displayNameProperty) { [string]$displayNameProperty.Value } else { '' }
+        $row.Cells[2].Value = if ($serialNumberProperty) { [string]$serialNumberProperty.Value } else { '' }
+        $row.Cells[3].Value = if ($primaryUserProperty) { [string]$primaryUserProperty.Value } else { '' }
+        $row.Cells[4].Value = if ($operatingSystemProperty) { [string]$operatingSystemProperty.Value } else { '' }
+        $row.Cells[5].Value = if ($recordIdProperty) { [string]$recordIdProperty.Value } else { '' }
+        $row.Cells[6].Value = if ($azureDeviceIdProperty) { [string]$azureDeviceIdProperty.Value } else { '' }
+        $row.Cells[7].Value = if ($deleteUriProperty) { [string]$deleteUriProperty.Value } else { '' }
+        $row.Cells[8].Value = if ($detailsProperty) { [string]$detailsProperty.Value } else { '' }
         $row.Tag = $item
+        [void]$Grid.Rows.Add($row)
     }
     foreach ($column in $Grid.Columns) {
         $column.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
