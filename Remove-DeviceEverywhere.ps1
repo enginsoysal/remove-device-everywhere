@@ -549,7 +549,7 @@ function Invoke-SearchBlock {
     }
     catch {
         Write-UiErrorDetail -TextBox $LogTextBox -Prefix "$Label failed:" -ErrorRecord $_
-        Write-Output -NoEnumerate -InputObject ([object[]]@())
+        return @()
     }
 }
 
@@ -941,14 +941,14 @@ function Search-DeviceEverywhere {
     $script:CurrentSearchTerm = $SearchTerm
     $script:SearchResults.Clear()
     Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Intune managed devices..."
-    $managedMatches = ConvertTo-ObjectArray -InputObject (Invoke-SearchBlock -Label 'Intune managed device search' -Action { Find-ManagedDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+    [object[]]$managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device search' -Action { Find-ManagedDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     if (-not $managedMatches.Count) {
         Write-UiLog -TextBox $LogTextBox -Message 'No Intune match from direct Graph filter. Running local fallback scan...'
-        $managedMatches = ConvertTo-ObjectArray -InputObject (Invoke-SearchBlock -Label 'Intune managed device fallback search' -Action { Find-ManagedDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        [object[]]$managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device fallback search' -Action { Find-ManagedDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     }
     if (-not $managedMatches.Count) {
         Write-UiLog -TextBox $LogTextBox -Message 'No Intune match from name or serial. Trying direct managedDeviceId lookup from the search text...'
-        $managedMatches = ConvertTo-ObjectArray -InputObject (Invoke-SearchBlock -Label 'Intune managed device ID lookup' -Action { Find-ManagedDeviceMatchByRecordId -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        [object[]]$managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device ID lookup' -Action { Find-ManagedDeviceMatchByRecordId -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     }
     Write-UiLog -TextBox $LogTextBox -Message "Intune managed device matches: $($managedMatches.Count)"
     foreach ($entry in $managedMatches) {
@@ -956,11 +956,11 @@ function Search-DeviceEverywhere {
     }
 
     Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Windows Autopilot..."
-    $autopilotMatches = @()
+    [object[]]$autopilotMatches = @()
     $autopilotServiceUnavailable = $false
 
     try {
-        $autopilotMatches = ConvertTo-ObjectArray -InputObject (Find-AutopilotMatch -SearchTerm $SearchTerm)
+        [object[]]$autopilotMatches = @(Find-AutopilotMatch -SearchTerm $SearchTerm)
     }
     catch {
         if (Test-IsGraphInternalServerError -ErrorRecord $_) {
@@ -975,7 +975,7 @@ function Search-DeviceEverywhere {
     if (-not $autopilotMatches.Count -and -not $autopilotServiceUnavailable) {
         Write-UiLog -TextBox $LogTextBox -Message 'No Autopilot match from direct Graph filter. Running local fallback scan...'
         try {
-            $autopilotMatches = ConvertTo-ObjectArray -InputObject (Find-AutopilotMatchFallback -SearchTerm $SearchTerm)
+            [object[]]$autopilotMatches = @(Find-AutopilotMatchFallback -SearchTerm $SearchTerm)
         }
         catch {
             if (Test-IsGraphInternalServerError -ErrorRecord $_) {
@@ -992,10 +992,10 @@ function Search-DeviceEverywhere {
     }
 
     Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Entra ID devices..."
-    $entraMatches = ConvertTo-ObjectArray -InputObject (Invoke-SearchBlock -Label 'Entra ID search' -Action { Find-EntraDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+    [object[]]$entraMatches = @(Invoke-SearchBlock -Label 'Entra ID search' -Action { Find-EntraDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     if (-not $entraMatches.Count) {
         Write-UiLog -TextBox $LogTextBox -Message 'No Entra direct match from Graph filter. Running local fallback scan...'
-        $entraMatches = ConvertTo-ObjectArray -InputObject (Invoke-SearchBlock -Label 'Entra ID fallback search' -Action { Find-EntraDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        [object[]]$entraMatches = @(Invoke-SearchBlock -Label 'Entra ID fallback search' -Action { Find-EntraDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     }
     Write-UiLog -TextBox $LogTextBox -Message "Entra ID direct matches: $($entraMatches.Count)"
     foreach ($entry in $entraMatches) {
@@ -1008,7 +1008,7 @@ function Search-DeviceEverywhere {
 
     if ($linkedAzureDeviceIds) {
         Write-UiLog -TextBox $LogTextBox -Message 'Resolving linked Entra ID devices from Intune and Autopilot records...'
-        $linkedEntraMatches = ConvertTo-ObjectArray -InputObject (Invoke-SearchBlock -Label 'Linked Entra ID resolution' -Action { Find-EntraDeviceMatchByAzureDeviceId -AzureDeviceIds $linkedAzureDeviceIds } -LogTextBox $LogTextBox)
+        [object[]]$linkedEntraMatches = @(Invoke-SearchBlock -Label 'Linked Entra ID resolution' -Action { Find-EntraDeviceMatchByAzureDeviceId -AzureDeviceIds $linkedAzureDeviceIds } -LogTextBox $LogTextBox)
         Write-UiLog -TextBox $LogTextBox -Message "Entra ID linked matches: $($linkedEntraMatches.Count)"
         foreach ($entry in $linkedEntraMatches) {
             [void]$script:SearchResults.Add($entry)
