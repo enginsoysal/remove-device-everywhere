@@ -1228,6 +1228,8 @@ function Sync-GridData {
     [void]$Grid.Columns.Add('DeleteUri', 'DeleteUri')
     [void]$Grid.Columns.Add('Details', 'Details')
 
+    $rowsToAdd = New-Object 'System.Collections.Generic.List[System.Windows.Forms.DataGridViewRow]'
+
     foreach ($item in $recordItems) {
         $sourceProperty = if ($item) { $item.PSObject.Properties['Source'] } else { $null }
         $displayNameProperty = if ($item) { $item.PSObject.Properties['DisplayName'] } else { $null }
@@ -1251,7 +1253,11 @@ function Sync-GridData {
         $row.Cells[7].Value = if ($deleteUriProperty) { [string]$deleteUriProperty.Value } else { '' }
         $row.Cells[8].Value = if ($detailsProperty) { [string]$detailsProperty.Value } else { '' }
         $row.Tag = $item
-        [void]$Grid.Rows.Add($row)
+        [void]$rowsToAdd.Add($row)
+    }
+
+    if ($rowsToAdd.Count -gt 0) {
+        $Grid.Rows.AddRange($rowsToAdd.ToArray())
     }
     foreach ($column in $Grid.Columns) {
         $column.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
