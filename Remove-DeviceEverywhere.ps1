@@ -2087,6 +2087,8 @@ $bulkSearchButton.Add_Click({
     param($sender, $eventArgs)
 
     try {
+        Set-StrictMode -Off
+
         if ([string]::IsNullOrWhiteSpace($bulkInputTextBox.Text)) {
             [System.Windows.Forms.MessageBox]::Show('Enter at least one device name or serial number.', 'Nothing to Search', 'OK', 'Warning') | Out-Null
             return
@@ -2112,7 +2114,11 @@ $bulkSearchButton.Add_Click({
             [void]$termSet.Add($termValue)
         }
 
-        $terms = ConvertTo-ObjectArray -InputObject ($termSet | Sort-Object)
+        $terms = New-Object System.Collections.Generic.List[string]
+        foreach ($sortedTerm in ($termSet | Sort-Object)) {
+            [void]$terms.Add([string]$sortedTerm)
+        }
+
         if (-not $terms.Count) {
             [System.Windows.Forms.MessageBox]::Show('No unique search terms found.', 'Nothing to Search', 'OK', 'Warning') | Out-Null
             return
@@ -2167,6 +2173,8 @@ $bulkSearchButton.Add_Click({
 })
 
 $bulkRemoveAllButton.Add_Click({
+    Set-StrictMode -Off
+
     if (-not $script:BulkAllResults.Count) {
         [System.Windows.Forms.MessageBox]::Show('No results to remove. Run Search All first.', 'Nothing Found', 'OK', 'Information') | Out-Null
         return
