@@ -482,11 +482,13 @@ function ConvertTo-ObjectArray {
     )
 
     if ($null -eq $InputObject) {
-        return @()
+        Write-Output -NoEnumerate -InputObject ([object[]]@())
+        return
     }
 
     if ($InputObject -is [string] -or $InputObject -isnot [System.Collections.IEnumerable]) {
-        return @($InputObject)
+        Write-Output -NoEnumerate -InputObject ([object[]]@($InputObject))
+        return
     }
 
     $items = New-Object System.Collections.Generic.List[object]
@@ -494,7 +496,7 @@ function ConvertTo-ObjectArray {
         [void]$items.Add($item)
     }
 
-    return $items.ToArray()
+    Write-Output -NoEnumerate -InputObject $items.ToArray()
 }
 
 function Test-IsGraphInternalServerError {
@@ -547,7 +549,7 @@ function Invoke-SearchBlock {
     }
     catch {
         Write-UiErrorDetail -TextBox $LogTextBox -Prefix "$Label failed:" -ErrorRecord $_
-        return @()
+        Write-Output -NoEnumerate -InputObject ([object[]]@())
     }
 }
 
