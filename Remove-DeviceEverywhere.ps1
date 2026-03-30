@@ -7,6 +7,9 @@ Add-Type -AssemblyName System.Drawing
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 function Invoke-ExternalPowerShellRelaunchIfNeeded {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param()
+
     if (-not $PSCommandPath) {
         return
     }
@@ -35,6 +38,10 @@ function Invoke-ExternalPowerShellRelaunchIfNeeded {
     $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($launchScript))
 
     try {
+        if (-not $PSCmdlet.ShouldProcess($PSCommandPath, 'Relaunch script in external Windows PowerShell')) {
+            return
+        }
+
         Start-Process -FilePath 'powershell.exe' -ArgumentList @(
             '-NoProfile'
             '-ExecutionPolicy'
@@ -490,6 +497,7 @@ function Confirm-GraphDeletion {
 }
 
 function ConvertTo-ResultObject {
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
         [string]$Source,
@@ -994,6 +1002,7 @@ function Get-LinkedRecord {
 }
 
 function Invoke-AutopilotAssignmentLinkRemoval {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory)]
         [pscustomobject]$Record,
@@ -1005,6 +1014,11 @@ function Invoke-AutopilotAssignmentLinkRemoval {
     $assignmentUri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/$($Record.RecordId)/deploymentProfile/assignedDevices/$($Record.RecordId)"
 
     try {
+        if (-not $PSCmdlet.ShouldProcess($Record.DisplayName, 'Remove Autopilot deployment assignment link')) {
+            Write-UiLog -TextBox $LogTextBox -Message "Skipped Autopilot assignment cleanup for $($Record.DisplayName): WhatIf/Confirm prevented the action."
+            return
+        }
+
         Invoke-MgGraphRequest -Method DELETE -Uri $assignmentUri | Out-Null
         Write-UiLog -TextBox $LogTextBox -Message "Removed Autopilot deployment assignment for $($Record.DisplayName)."
     }
@@ -1014,6 +1028,7 @@ function Invoke-AutopilotAssignmentLinkRemoval {
 }
 
 function Invoke-DeviceRecordRemoval {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory)]
         [pscustomobject]$Record,
@@ -1023,6 +1038,11 @@ function Invoke-DeviceRecordRemoval {
     )
 
     Write-UiLog -TextBox $LogTextBox -Message "Deleting $($Record.Source): $($Record.DisplayName) [$($Record.RecordId)]"
+    if (-not $PSCmdlet.ShouldProcess("$($Record.Source): $($Record.DisplayName)", 'Delete device record')) {
+        Write-UiLog -TextBox $LogTextBox -Message "Skipped $($Record.Source): $($Record.DisplayName) due to WhatIf/Confirm."
+        return 'Skipped'
+    }
+
     if ($Record.Source -eq 'Windows Autopilot') {
         Invoke-AutopilotAssignmentLinkRemoval -Record $Record -LogTextBox $LogTextBox
     }
@@ -1048,6 +1068,7 @@ function Invoke-DeviceRecordRemoval {
 }
 
 function Sync-GridData {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory)]
         [System.Windows.Forms.DataGridView]$Grid,
@@ -1055,6 +1076,10 @@ function Sync-GridData {
         [Parameter()]
         [System.Collections.IEnumerable]$Records = $script:SearchResults
     )
+
+    if (-not $PSCmdlet.ShouldProcess('UI Grid', 'Sync grid data')) {
+        return
+    }
 
     $bindingList = New-Object System.ComponentModel.BindingList[object]
     foreach ($item in @($Records)) {
@@ -1109,6 +1134,7 @@ function Get-SelectedRecord {
 }
 
 function Sync-PreviewData {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory)]
         [System.Windows.Forms.DataGridView]$SourceGrid,
@@ -1122,6 +1148,10 @@ function Sync-PreviewData {
         [Parameter(Mandatory)]
         [bool]$ExpandLinked
     )
+
+    if (-not $PSCmdlet.ShouldProcess('UI Preview', 'Sync preview data')) {
+        return
+    }
 
     $script:PreviewResults.Clear()
     $selected = @(Get-SelectedRecord -Grid $SourceGrid)
