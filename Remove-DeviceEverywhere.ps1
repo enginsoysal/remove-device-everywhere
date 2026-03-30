@@ -1,6 +1,5 @@
 ﻿Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-#pragma warning disable PSUseApprovedVerbs
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
