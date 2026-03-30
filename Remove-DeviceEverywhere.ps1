@@ -1911,13 +1911,37 @@ $removeButton.Add_Click({
     try {
         Set-StrictMode -Off
 
-        $selected = @(Get-SelectedRecord -Grid $grid)
+        $selectedRaw = Get-SelectedRecord -Grid $grid
+        $selected = New-Object System.Collections.Generic.List[object]
+        if ($null -ne $selectedRaw) {
+            if ($selectedRaw -is [string] -or $selectedRaw -isnot [System.Collections.IEnumerable]) {
+                [void]$selected.Add($selectedRaw)
+            }
+            else {
+                foreach ($selectedItem in $selectedRaw) {
+                    [void]$selected.Add($selectedItem)
+                }
+            }
+        }
+
         if (-not $selected.Count) {
             [System.Windows.Forms.MessageBox]::Show('Select one or more rows to remove.', 'Nothing Selected', 'OK', 'Warning') | Out-Null
             return
         }
 
-        $selected = @(Resolve-RemovalPlan -SeedRecords $selected -AllRecords $script:SearchResults -ExpandLinked:$linkedCleanupCheckBox.Checked)
+        $resolvedRaw = Resolve-RemovalPlan -SeedRecords $selected.ToArray() -AllRecords $script:SearchResults -ExpandLinked:$linkedCleanupCheckBox.Checked
+        $selected.Clear()
+        if ($null -ne $resolvedRaw) {
+            if ($resolvedRaw -is [string] -or $resolvedRaw -isnot [System.Collections.IEnumerable]) {
+                [void]$selected.Add($resolvedRaw)
+            }
+            else {
+                foreach ($selectedItem in $resolvedRaw) {
+                    [void]$selected.Add($selectedItem)
+                }
+            }
+        }
+
         Sync-PreviewData -SourceGrid $grid -PreviewGrid $previewGrid -PreviewLabel $previewLabel -ExpandLinked $linkedCleanupCheckBox.Checked
         Write-UiLog -TextBox $logTextBox -Message "Prepared deletion plan for $($selected.Count) record(s)."
 
@@ -1934,7 +1958,7 @@ $removeButton.Add_Click({
         }
 
         $form.UseWaitCursor = $true
-        $result = Invoke-RemovalPlan -Records $selected -LogTextBox $logTextBox
+        $result = Invoke-RemovalPlan -Records $selected.ToArray() -LogTextBox $logTextBox
 
         Sync-GridData -Grid $grid
         Sync-PreviewData -SourceGrid $grid -PreviewGrid $previewGrid -PreviewLabel $previewLabel -ExpandLinked $linkedCleanupCheckBox.Checked
@@ -1942,6 +1966,8 @@ $removeButton.Add_Click({
         $removeAllButton.Enabled = $script:SearchResults.Count -gt 0
         $selectAllButton.Enabled = $script:SearchResults.Count -gt 0
         $statusLabel.Text = "Status: Removed $($result.DeletedCount) record(s), failed $($result.FailedCount)"
+        [System.Windows.Forms.MessageBox]::Show("Removal completed.`r`n`r`nDeleted: $($result.DeletedCount)`r`nFailed: $($result.FailedCount)", 'Removal Completed', 'OK', 'Information') | Out-Null
+        $searchTextBox.Clear()
     }
     catch {
         $statusLabel.Text = 'Status: Removal failed'
@@ -1957,7 +1983,24 @@ $removeAllButton.Add_Click({
     try {
         Set-StrictMode -Off
 
-        $allRecords = @(Resolve-RemovalPlan -SeedRecords @($script:SearchResults) -AllRecords $script:SearchResults -ExpandLinked:$false)
+        $seedRecords = New-Object System.Collections.Generic.List[object]
+        foreach ($record in $script:SearchResults) {
+            [void]$seedRecords.Add($record)
+        }
+
+        $allRecordsRaw = Resolve-RemovalPlan -SeedRecords $seedRecords.ToArray() -AllRecords $script:SearchResults -ExpandLinked:$false
+        $allRecords = New-Object System.Collections.Generic.List[object]
+        if ($null -ne $allRecordsRaw) {
+            if ($allRecordsRaw -is [string] -or $allRecordsRaw -isnot [System.Collections.IEnumerable]) {
+                [void]$allRecords.Add($allRecordsRaw)
+            }
+            else {
+                foreach ($allRecord in $allRecordsRaw) {
+                    [void]$allRecords.Add($allRecord)
+                }
+            }
+        }
+
         if (-not $allRecords.Count) {
             [System.Windows.Forms.MessageBox]::Show('There are no search results to remove.', 'Nothing Found', 'OK', 'Information') | Out-Null
             return
@@ -1979,7 +2022,7 @@ $removeAllButton.Add_Click({
         }
 
         $form.UseWaitCursor = $true
-        $result = Invoke-RemovalPlan -Records $allRecords -LogTextBox $logTextBox
+        $result = Invoke-RemovalPlan -Records $allRecords.ToArray() -LogTextBox $logTextBox
         Sync-GridData -Grid $grid
         Sync-GridData -Grid $previewGrid -Records $null
         $previewLabel.Text = 'Removal Preview: Select one or more results to see exactly what will be deleted'
@@ -1987,6 +2030,8 @@ $removeAllButton.Add_Click({
         $removeAllButton.Enabled = $script:SearchResults.Count -gt 0
         $selectAllButton.Enabled = $script:SearchResults.Count -gt 0
         $statusLabel.Text = "Status: Removed $($result.DeletedCount) record(s), failed $($result.FailedCount)"
+        [System.Windows.Forms.MessageBox]::Show("Removal completed.`r`n`r`nDeleted: $($result.DeletedCount)`r`nFailed: $($result.FailedCount)", 'Removal Completed', 'OK', 'Information') | Out-Null
+        $searchTextBox.Clear()
     }
     catch {
         $statusLabel.Text = 'Status: Remove all failed'
@@ -2186,7 +2231,28 @@ $bulkRemoveAllButton.Add_Click({
         return
     }
 
-    $toDelete = @(Resolve-RemovalPlan -SeedRecords @($script:BulkAllResults) -AllRecords $script:BulkAllResults -ExpandLinked:$bulkLinkedCleanupCheckBox.Checked)
+    $seedRecords = New-Object System.Collections.Generic.List[object]
+    foreach ($bulkRecord in $script:BulkAllResults) {
+        [void]$seedRecords.Add($bulkRecord)
+    }
+
+    $toDeleteRaw = Resolve-RemovalPlan -SeedRecords $seedRecords.ToArray() -AllRecords $script:BulkAllResults -ExpandLinked:$bulkLinkedCleanupCheckBox.Checked
+    $toDelete = New-Object System.Collections.Generic.List[object]
+    if ($null -ne $toDeleteRaw) {
+        if ($toDeleteRaw -is [string] -or $toDeleteRaw -isnot [System.Collections.IEnumerable]) {
+            [void]$toDelete.Add($toDeleteRaw)
+        }
+        else {
+            foreach ($deleteItem in $toDeleteRaw) {
+                [void]$toDelete.Add($deleteItem)
+            }
+        }
+    }
+
+    if (-not $toDelete.Count) {
+        [System.Windows.Forms.MessageBox]::Show('No removable records found for the current bulk selection.', 'Nothing To Remove', 'OK', 'Information') | Out-Null
+        return
+    }
     $summary = ($toDelete | Select-Object -First 20 | ForEach-Object { "$($_.Source): $($_.DisplayName)" }) -join [Environment]::NewLine
     if ($toDelete.Count -gt 20) {
         $summary += [Environment]::NewLine + "... and $($toDelete.Count - 20) more"
@@ -2207,7 +2273,7 @@ $bulkRemoveAllButton.Add_Click({
         $form.UseWaitCursor = $true
         $bulkRemoveAllButton.Enabled = $false
         $statusLabel.Text = "Status: Bulk removing $($toDelete.Count) record(s)..."
-        $result = Invoke-RemovalPlan -Records $toDelete -LogTextBox $bulkLogTextBox
+        $result = Invoke-RemovalPlan -Records $toDelete.ToArray() -LogTextBox $bulkLogTextBox
 
         # Remove deleted items from bulk results list
         $remaining = $script:BulkAllResults | Where-Object {
@@ -2223,6 +2289,8 @@ $bulkRemoveAllButton.Add_Click({
         $bulkRemoveAllButton.Enabled = $script:BulkAllResults.Count -gt 0
         $statusLabel.Text = "Status: Bulk removal done - deleted $($result.DeletedCount), failed $($result.FailedCount)"
         Write-UiLog -TextBox $bulkLogTextBox -Message "Bulk removal complete. Deleted: $($result.DeletedCount), failed: $($result.FailedCount)."
+        [System.Windows.Forms.MessageBox]::Show("Bulk removal completed.`r`n`r`nDeleted: $($result.DeletedCount)`r`nFailed: $($result.FailedCount)", 'Bulk Removal Completed', 'OK', 'Information') | Out-Null
+        $bulkInputTextBox.Clear()
     }
     catch {
         Write-UiErrorDetail -TextBox $bulkLogTextBox -Prefix 'Bulk removal failed:' -ErrorRecord $_
