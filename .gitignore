@@ -1,3 +1,5 @@
 ﻿AuditLogs/*.csv
 AuditLogs/*.log
 *.tmp
+publish-log.txt
+dist/*-fixed.exe
