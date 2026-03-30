@@ -64,6 +64,22 @@ function Invoke-ExternalPowerShellRelaunchIfNeeded {
 
 Invoke-ExternalPowerShellRelaunchIfNeeded
 
+function Get-AppBasePath {
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        return $PSScriptRoot
+    }
+
+    if ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
+        return (Split-Path -Path $MyInvocation.MyCommand.Path -Parent)
+    }
+
+    if ([AppDomain]::CurrentDomain.BaseDirectory) {
+        return [AppDomain]::CurrentDomain.BaseDirectory.TrimEnd('\\')
+    }
+
+    return (Get-Location).Path
+}
+
 $script:GraphScopes = @(
     'DeviceManagementManagedDevices.ReadWrite.All'
     'DeviceManagementServiceConfig.ReadWrite.All'
@@ -80,7 +96,8 @@ $script:BulkAllResults = New-Object System.Collections.Generic.List[object]
 $script:BulkSearchRunning = $false
 $script:PrimaryLogTextBox = $null
 $script:SecondaryLogTextBox = $null
-$script:AuditDirectory = Join-Path -Path $PSScriptRoot -ChildPath 'AuditLogs'
+$script:AppBasePath = Get-AppBasePath
+$script:AuditDirectory = Join-Path -Path $script:AppBasePath -ChildPath 'AuditLogs'
 $script:AuditLogPath = Join-Path -Path $script:AuditDirectory -ChildPath ("device-removal-{0}.csv" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
 
 function Write-UiLog {
