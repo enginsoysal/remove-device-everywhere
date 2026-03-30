@@ -7,7 +7,7 @@ Add-Type -AssemblyName System.Drawing
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-function Restart-InExternalPowerShellIfNeeded {
+function Invoke-ExternalPowerShellRelaunchIfNeeded {
     if (-not $PSCommandPath) {
         return
     }
@@ -56,7 +56,7 @@ function Restart-InExternalPowerShellIfNeeded {
     }
 }
 
-Restart-InExternalPowerShellIfNeeded
+Invoke-ExternalPowerShellRelaunchIfNeeded
 
 $script:GraphScopes = @(
     'DeviceManagementManagedDevices.ReadWrite.All'
@@ -103,7 +103,7 @@ function Write-UiLog {
     }
 }
 
-function Clear-UiLogs {
+function Clear-UiLog {
     foreach ($textBox in @($script:PrimaryLogTextBox, $script:SecondaryLogTextBox)) {
         if ($textBox) {
             $textBox.Clear()
@@ -220,7 +220,7 @@ function Write-AuditEntry {
     $auditRecord | Export-Csv -Path $script:AuditLogPath -NoTypeInformation
 }
 
-function Initialize-PackageManagementPrerequisites {
+function Initialize-PackageManagementPrerequisite {
     $nugetProvider = Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction SilentlyContinue
     if (-not $nugetProvider -or [version]$nugetProvider.Version -lt [version]'2.8.5.201') {
         Install-PackageProvider -Name NuGet -MinimumVersion '2.8.5.201' -Force -Scope CurrentUser -Confirm:$false | Out-Null
@@ -250,7 +250,7 @@ function Initialize-MicrosoftGraphModule {
     }
 
     if (-not $module) {
-        Initialize-PackageManagementPrerequisites
+        Initialize-PackageManagementPrerequisite
         $installParams = @{
             Name              = $moduleName
             Repository        = 'PSGallery'
@@ -490,7 +490,7 @@ function Confirm-GraphDeletion {
     return $false
 }
 
-function New-ResultObject {
+function ConvertTo-ResultObject {
     param(
         [Parameter(Mandatory)]
         [string]$Source,
@@ -537,7 +537,7 @@ function Find-ManagedDeviceMatchByRecordId {
     }
 
     return @(
-        New-ResultObject -Source 'Intune Managed Device' `
+        ConvertTo-ResultObject -Source 'Intune Managed Device' `
             -DisplayName $device.deviceName `
             -SerialNumber $device.serialNumber `
             -PrimaryUser $device.userPrincipalName `
@@ -563,7 +563,7 @@ function ConvertTo-NormalizedMatchValue {
     return $Value.Trim().ToUpperInvariant()
 }
 
-function Get-LocalMatchingItems {
+function Get-LocalMatchingItem {
     param(
         [Parameter(Mandatory)]
         [System.Collections.IEnumerable]$Items,
@@ -620,7 +620,7 @@ function Get-LocalMatchingItems {
     return $containsMatches
 }
 
-function Find-ManagedDeviceMatches {
+function Find-ManagedDeviceMatch {
     param(
         [Parameter(Mandatory)]
         [string]$SearchTerm
@@ -641,7 +641,7 @@ function Find-ManagedDeviceMatches {
     }
 
     $results = $items | ForEach-Object {
-        New-ResultObject -Source 'Intune Managed Device' `
+        ConvertTo-ResultObject -Source 'Intune Managed Device' `
             -DisplayName $_.deviceName `
             -SerialNumber $_.serialNumber `
             -PrimaryUser $_.userPrincipalName `
@@ -655,7 +655,7 @@ function Find-ManagedDeviceMatches {
     return Get-UniqueResultsByRecordId -Items $results
 }
 
-function Find-EntraDeviceMatches {
+function Find-EntraDeviceMatch {
     param(
         [Parameter(Mandatory)]
         [string]$SearchTerm
@@ -674,7 +674,7 @@ function Find-EntraDeviceMatches {
 
     return $items | ForEach-Object {
         $lastSeen = if ($_.approximateLastSignInDateTime) { "Last sign-in: $($_.approximateLastSignInDateTime)" } else { 'Last sign-in: unknown' }
-        New-ResultObject -Source 'Entra ID Device' `
+        ConvertTo-ResultObject -Source 'Entra ID Device' `
             -DisplayName $_.displayName `
             -SerialNumber '' `
             -PrimaryUser '' `
@@ -686,7 +686,7 @@ function Find-EntraDeviceMatches {
     }
 }
 
-function Find-EntraDeviceMatchesByAzureDeviceId {
+function Find-EntraDeviceMatchByAzureDeviceId {
     param(
         [Parameter(Mandatory)]
         [string[]]$AzureDeviceIds
@@ -700,7 +700,7 @@ function Find-EntraDeviceMatchesByAzureDeviceId {
         }
 
         $lastSeen = if ($device.approximateLastSignInDateTime) { "Last sign-in: $($device.approximateLastSignInDateTime)" } else { 'Last sign-in: unknown' }
-        New-ResultObject -Source 'Entra ID Device' `
+        ConvertTo-ResultObject -Source 'Entra ID Device' `
             -DisplayName $device.displayName `
             -SerialNumber '' `
             -PrimaryUser '' `
@@ -712,7 +712,7 @@ function Find-EntraDeviceMatchesByAzureDeviceId {
     }
 }
 
-function Find-ManagedDeviceMatchesFallback {
+function Find-ManagedDeviceMatchFallback {
     param(
         [Parameter(Mandatory)]
         [string]$SearchTerm
@@ -721,10 +721,10 @@ function Find-ManagedDeviceMatchesFallback {
     $select = "id,deviceName,serialNumber,userPrincipalName,operatingSystem,azureADDeviceId,managementAgent"
     $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$select=$select"
     $items = Invoke-GraphGetPaged -Uri $uri
-    $matchedItems = Get-LocalMatchingItems -Items $items -SearchTerm $SearchTerm -PropertyNames @('deviceName', 'serialNumber')
+    $matchedItems = Get-LocalMatchingItem -Items $items -SearchTerm $SearchTerm -PropertyNames @('deviceName', 'serialNumber')
 
     $results = $matchedItems | ForEach-Object {
-        New-ResultObject -Source 'Intune Managed Device' `
+        ConvertTo-ResultObject -Source 'Intune Managed Device' `
             -DisplayName $_.deviceName `
             -SerialNumber $_.serialNumber `
             -PrimaryUser $_.userPrincipalName `
@@ -738,7 +738,7 @@ function Find-ManagedDeviceMatchesFallback {
     return Get-UniqueResultsByRecordId -Items $results
 }
 
-function Find-EntraDeviceMatchesFallback {
+function Find-EntraDeviceMatchFallback {
     param(
         [Parameter(Mandatory)]
         [string]$SearchTerm
@@ -747,11 +747,11 @@ function Find-EntraDeviceMatchesFallback {
     $select = "id,displayName,deviceId,operatingSystem,approximateLastSignInDateTime"
     $uri = "https://graph.microsoft.com/v1.0/devices?`$select=$select"
     $items = Invoke-GraphGetPaged -Uri $uri
-    $matchedItems = Get-LocalMatchingItems -Items $items -SearchTerm $SearchTerm -PropertyNames @('displayName', 'deviceId')
+    $matchedItems = Get-LocalMatchingItem -Items $items -SearchTerm $SearchTerm -PropertyNames @('displayName', 'deviceId')
 
     return $matchedItems | ForEach-Object {
         $lastSeen = if ($_.approximateLastSignInDateTime) { "Last sign-in: $($_.approximateLastSignInDateTime)" } else { 'Last sign-in: unknown' }
-        New-ResultObject -Source 'Entra ID Device' `
+        ConvertTo-ResultObject -Source 'Entra ID Device' `
             -DisplayName $_.displayName `
             -SerialNumber '' `
             -PrimaryUser '' `
@@ -763,7 +763,7 @@ function Find-EntraDeviceMatchesFallback {
     }
 }
 
-function Find-AutopilotMatches {
+function Find-AutopilotMatch {
     param(
         [Parameter(Mandatory)]
         [string]$SearchTerm
@@ -784,7 +784,7 @@ function Find-AutopilotMatches {
     }
 
     $results = $items | ForEach-Object {
-        New-ResultObject -Source 'Windows Autopilot' `
+        ConvertTo-ResultObject -Source 'Windows Autopilot' `
             -DisplayName $_.displayName `
             -SerialNumber $_.serialNumber `
             -PrimaryUser '' `
@@ -798,7 +798,7 @@ function Find-AutopilotMatches {
     return Get-UniqueResultsByRecordId -Items $results
 }
 
-function Find-AutopilotMatchesFallback {
+function Find-AutopilotMatchFallback {
     param(
         [Parameter(Mandatory)]
         [string]$SearchTerm
@@ -807,10 +807,10 @@ function Find-AutopilotMatchesFallback {
     $select = "id,displayName,serialNumber,manufacturer,model,azureActiveDirectoryDeviceId"
     $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=$select"
     $items = Invoke-GraphGetPaged -Uri $uri
-    $matchedItems = Get-LocalMatchingItems -Items $items -SearchTerm $SearchTerm -PropertyNames @('displayName', 'serialNumber')
+    $matchedItems = Get-LocalMatchingItem -Items $items -SearchTerm $SearchTerm -PropertyNames @('displayName', 'serialNumber')
 
     $results = $matchedItems | ForEach-Object {
-        New-ResultObject -Source 'Windows Autopilot' `
+        ConvertTo-ResultObject -Source 'Windows Autopilot' `
             -DisplayName $_.displayName `
             -SerialNumber $_.serialNumber `
             -PrimaryUser '' `
@@ -836,10 +836,10 @@ function Search-DeviceEverywhere {
     $script:CurrentSearchTerm = $SearchTerm
     $script:SearchResults.Clear()
     Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Intune managed devices..."
-    $managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device search' -Action { Find-ManagedDeviceMatches -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+    $managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device search' -Action { Find-ManagedDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     if (-not $managedMatches.Count) {
         Write-UiLog -TextBox $LogTextBox -Message 'No Intune match from direct Graph filter. Running local fallback scan...'
-        $managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device fallback search' -Action { Find-ManagedDeviceMatchesFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        $managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device fallback search' -Action { Find-ManagedDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     }
     if (-not $managedMatches.Count) {
         Write-UiLog -TextBox $LogTextBox -Message 'No Intune match from name or serial. Trying direct managedDeviceId lookup from the search text...'
@@ -851,10 +851,10 @@ function Search-DeviceEverywhere {
     }
 
     Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Windows Autopilot..."
-    $autopilotMatches = @(Invoke-SearchBlock -Label 'Windows Autopilot search' -Action { Find-AutopilotMatches -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+    $autopilotMatches = @(Invoke-SearchBlock -Label 'Windows Autopilot search' -Action { Find-AutopilotMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     if (-not $autopilotMatches.Count) {
         Write-UiLog -TextBox $LogTextBox -Message 'No Autopilot match from direct Graph filter. Running local fallback scan...'
-        $autopilotMatches = @(Invoke-SearchBlock -Label 'Windows Autopilot fallback search' -Action { Find-AutopilotMatchesFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        $autopilotMatches = @(Invoke-SearchBlock -Label 'Windows Autopilot fallback search' -Action { Find-AutopilotMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     }
     Write-UiLog -TextBox $LogTextBox -Message "Windows Autopilot matches: $($autopilotMatches.Count)"
     foreach ($entry in $autopilotMatches) {
@@ -862,10 +862,10 @@ function Search-DeviceEverywhere {
     }
 
     Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Entra ID devices..."
-    $entraMatches = @(Invoke-SearchBlock -Label 'Entra ID search' -Action { Find-EntraDeviceMatches -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+    $entraMatches = @(Invoke-SearchBlock -Label 'Entra ID search' -Action { Find-EntraDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     if (-not $entraMatches.Count) {
         Write-UiLog -TextBox $LogTextBox -Message 'No Entra direct match from Graph filter. Running local fallback scan...'
-        $entraMatches = @(Invoke-SearchBlock -Label 'Entra ID fallback search' -Action { Find-EntraDeviceMatchesFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        $entraMatches = @(Invoke-SearchBlock -Label 'Entra ID fallback search' -Action { Find-EntraDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     }
     Write-UiLog -TextBox $LogTextBox -Message "Entra ID direct matches: $($entraMatches.Count)"
     foreach ($entry in $entraMatches) {
@@ -878,7 +878,7 @@ function Search-DeviceEverywhere {
 
     if ($linkedAzureDeviceIds) {
         Write-UiLog -TextBox $LogTextBox -Message 'Resolving linked Entra ID devices from Intune and Autopilot records...'
-        $linkedEntraMatches = @(Invoke-SearchBlock -Label 'Linked Entra ID resolution' -Action { Find-EntraDeviceMatchesByAzureDeviceId -AzureDeviceIds $linkedAzureDeviceIds } -LogTextBox $LogTextBox)
+        $linkedEntraMatches = @(Invoke-SearchBlock -Label 'Linked Entra ID resolution' -Action { Find-EntraDeviceMatchByAzureDeviceId -AzureDeviceIds $linkedAzureDeviceIds } -LogTextBox $LogTextBox)
         Write-UiLog -TextBox $LogTextBox -Message "Entra ID linked matches: $($linkedEntraMatches.Count)"
         foreach ($entry in $linkedEntraMatches) {
             [void]$script:SearchResults.Add($entry)
@@ -910,7 +910,7 @@ function Resolve-RemovalPlan {
     )
 
     if ($ExpandLinked) {
-        return @(Get-LinkedRecords -SeedRecords $SeedRecords -AllRecords $AllRecords)
+        return @(Get-LinkedRecord -SeedRecords $SeedRecords -AllRecords $AllRecords)
     }
 
     $unique = New-Object System.Collections.Generic.List[object]
@@ -930,7 +930,7 @@ function Resolve-RemovalPlan {
     return $unique
 }
 
-function Get-LinkedRecords {
+function Get-LinkedRecord {
     param(
         [Parameter(Mandatory)]
         [object[]]$SeedRecords,
@@ -994,7 +994,7 @@ function Get-LinkedRecords {
     return $expanded
 }
 
-function Remove-AutopilotAssignmentLink {
+function Invoke-AutopilotAssignmentLinkRemoval {
     param(
         [Parameter(Mandatory)]
         [pscustomobject]$Record,
@@ -1014,7 +1014,7 @@ function Remove-AutopilotAssignmentLink {
     }
 }
 
-function Remove-DeviceRecord {
+function Invoke-DeviceRecordRemoval {
     param(
         [Parameter(Mandatory)]
         [pscustomobject]$Record,
@@ -1025,7 +1025,7 @@ function Remove-DeviceRecord {
 
     Write-UiLog -TextBox $LogTextBox -Message "Deleting $($Record.Source): $($Record.DisplayName) [$($Record.RecordId)]"
     if ($Record.Source -eq 'Windows Autopilot') {
-        Remove-AutopilotAssignmentLink -Record $Record -LogTextBox $LogTextBox
+        Invoke-AutopilotAssignmentLinkRemoval -Record $Record -LogTextBox $LogTextBox
     }
 
     try {
@@ -1048,7 +1048,7 @@ function Remove-DeviceRecord {
     return 'Deleted'
 }
 
-function Update-GridData {
+function Sync-GridData {
     param(
         [Parameter(Mandatory)]
         [System.Windows.Forms.DataGridView]$Grid,
@@ -1092,7 +1092,7 @@ function Update-GridData {
     }
 }
 
-function Get-SelectedRecords {
+function Get-SelectedRecord {
     param(
         [Parameter(Mandatory)]
         [System.Windows.Forms.DataGridView]$Grid
@@ -1109,7 +1109,7 @@ function Get-SelectedRecords {
     return $selected
 }
 
-function Update-PreviewData {
+function Sync-PreviewData {
     param(
         [Parameter(Mandatory)]
         [System.Windows.Forms.DataGridView]$SourceGrid,
@@ -1125,10 +1125,10 @@ function Update-PreviewData {
     )
 
     $script:PreviewResults.Clear()
-    $selected = @(Get-SelectedRecords -Grid $SourceGrid)
+    $selected = @(Get-SelectedRecord -Grid $SourceGrid)
 
     if (-not $selected.Count) {
-        Update-GridData -Grid $PreviewGrid -Records @()
+        Sync-GridData -Grid $PreviewGrid -Records @()
         $PreviewLabel.Text = 'Removal Preview: Select one or more results to see exactly what will be deleted'
         return
     }
@@ -1138,7 +1138,7 @@ function Update-PreviewData {
         [void]$script:PreviewResults.Add($record)
     }
 
-    Update-GridData -Grid $PreviewGrid -Records $script:PreviewResults
+    Sync-GridData -Grid $PreviewGrid -Records $script:PreviewResults
     if ($ExpandLinked) {
         $PreviewLabel.Text = "Removal Preview: $($script:PreviewResults.Count) record(s) will be deleted including linked matches"
         return
@@ -1161,7 +1161,7 @@ function Invoke-RemovalPlan {
 
     foreach ($record in $Records) {
         try {
-            $removalState = Remove-DeviceRecord -Record $record -LogTextBox $LogTextBox
+            $removalState = Invoke-DeviceRecordRemoval -Record $record -LogTextBox $LogTextBox
             [void]$script:SearchResults.Remove($record)
             if ($removalState -eq 'AlreadyAbsent') {
                 Write-AuditEntry -Record $record -Outcome 'Deleted' -Message 'Record was already absent when delete was attempted.'
@@ -1677,8 +1677,8 @@ $searchButton.Add_Click({
         $form.UseWaitCursor = $true
         $statusLabel.Text = "Status: Searching for $term"
         Search-DeviceEverywhere -SearchTerm $term -LogTextBox $logTextBox | Out-Null
-        Update-GridData -Grid $grid
-        Update-GridData -Grid $previewGrid -Records @()
+        Sync-GridData -Grid $grid
+        Sync-GridData -Grid $previewGrid -Records @()
         $previewLabel.Text = 'Removal Preview: Select one or more results to see exactly what will be deleted'
         $removeButton.Enabled = $script:SearchResults.Count -gt 0
         $removeAllButton.Enabled = $script:SearchResults.Count -gt 0
@@ -1697,14 +1697,14 @@ $searchButton.Add_Click({
 
 $removeButton.Add_Click({
     try {
-        $selected = @(Get-SelectedRecords -Grid $grid)
+        $selected = @(Get-SelectedRecord -Grid $grid)
         if (-not $selected.Count) {
             [System.Windows.Forms.MessageBox]::Show('Select one or more rows to remove.', 'Nothing Selected', 'OK', 'Warning') | Out-Null
             return
         }
 
         $selected = @(Resolve-RemovalPlan -SeedRecords $selected -AllRecords $script:SearchResults -ExpandLinked:$linkedCleanupCheckBox.Checked)
-        Update-PreviewData -SourceGrid $grid -PreviewGrid $previewGrid -PreviewLabel $previewLabel -ExpandLinked $linkedCleanupCheckBox.Checked
+        Sync-PreviewData -SourceGrid $grid -PreviewGrid $previewGrid -PreviewLabel $previewLabel -ExpandLinked $linkedCleanupCheckBox.Checked
         Write-UiLog -TextBox $logTextBox -Message "Prepared deletion plan for $($selected.Count) record(s)."
 
         $summary = ($selected | ForEach-Object { "$($_.Source): $($_.DisplayName)" }) -join [Environment]::NewLine
@@ -1722,8 +1722,8 @@ $removeButton.Add_Click({
         $form.UseWaitCursor = $true
         $result = Invoke-RemovalPlan -Records $selected -LogTextBox $logTextBox
 
-        Update-GridData -Grid $grid
-        Update-PreviewData -SourceGrid $grid -PreviewGrid $previewGrid -PreviewLabel $previewLabel -ExpandLinked $linkedCleanupCheckBox.Checked
+        Sync-GridData -Grid $grid
+        Sync-PreviewData -SourceGrid $grid -PreviewGrid $previewGrid -PreviewLabel $previewLabel -ExpandLinked $linkedCleanupCheckBox.Checked
         $removeButton.Enabled = $script:SearchResults.Count -gt 0
         $removeAllButton.Enabled = $script:SearchResults.Count -gt 0
         $selectAllButton.Enabled = $script:SearchResults.Count -gt 0
@@ -1747,7 +1747,7 @@ $removeAllButton.Add_Click({
             return
         }
 
-        Update-GridData -Grid $previewGrid -Records $allRecords
+        Sync-GridData -Grid $previewGrid -Records $allRecords
         $previewLabel.Text = "Removal Preview: $($allRecords.Count) found record(s) will be deleted"
         Write-UiLog -TextBox $logTextBox -Message "Prepared deletion plan for all $($allRecords.Count) found record(s)."
 
@@ -1764,8 +1764,8 @@ $removeAllButton.Add_Click({
 
         $form.UseWaitCursor = $true
         $result = Invoke-RemovalPlan -Records $allRecords -LogTextBox $logTextBox
-        Update-GridData -Grid $grid
-        Update-GridData -Grid $previewGrid -Records @()
+        Sync-GridData -Grid $grid
+        Sync-GridData -Grid $previewGrid -Records @()
         $previewLabel.Text = 'Removal Preview: Select one or more results to see exactly what will be deleted'
         $removeButton.Enabled = $script:SearchResults.Count -gt 0
         $removeAllButton.Enabled = $script:SearchResults.Count -gt 0
@@ -1788,12 +1788,12 @@ $selectAllButton.Add_Click({
 
 $clearButton.Add_Click({
     $searchTextBox.Clear()
-    Clear-UiLogs
+    Clear-UiLog
     $script:SearchResults.Clear()
     $script:PreviewResults.Clear()
     $script:CurrentSearchTerm = ''
-    Update-GridData -Grid $grid
-    Update-GridData -Grid $previewGrid -Records @()
+    Sync-GridData -Grid $grid
+    Sync-GridData -Grid $previewGrid -Records @()
     $removeButton.Enabled = $false
     $removeAllButton.Enabled = $false
     $selectAllButton.Enabled = $false
@@ -1802,11 +1802,11 @@ $clearButton.Add_Click({
 })
 
 $grid.Add_SelectionChanged({
-    Update-PreviewData -SourceGrid $grid -PreviewGrid $previewGrid -PreviewLabel $previewLabel -ExpandLinked $linkedCleanupCheckBox.Checked
+    Sync-PreviewData -SourceGrid $grid -PreviewGrid $previewGrid -PreviewLabel $previewLabel -ExpandLinked $linkedCleanupCheckBox.Checked
 })
 
 $linkedCleanupCheckBox.Add_CheckedChanged({
-    Update-PreviewData -SourceGrid $grid -PreviewGrid $previewGrid -PreviewLabel $previewLabel -ExpandLinked $linkedCleanupCheckBox.Checked
+    Sync-PreviewData -SourceGrid $grid -PreviewGrid $previewGrid -PreviewLabel $previewLabel -ExpandLinked $linkedCleanupCheckBox.Checked
 })
 
 $searchTextBox.Add_KeyDown({
@@ -1918,7 +1918,7 @@ $bulkSearchButton.Add_Click({
             [void]$script:BulkAllResults.Add($r)
         }
 
-        Update-GridData -Grid $bulkGrid -Records $script:BulkAllResults
+        Sync-GridData -Grid $bulkGrid -Records $script:BulkAllResults
         $bulkResultsLabel.Text = "Results: Found $($script:BulkAllResults.Count) unique record(s) across $($terms.Count) search term(s)"
         $bulkRemoveAllButton.Enabled = $script:BulkAllResults.Count -gt 0
         $statusLabel.Text = "Status: Bulk search done - $($script:BulkAllResults.Count) record(s) found"
@@ -1973,7 +1973,7 @@ $bulkRemoveAllButton.Add_Click({
             [void]$script:BulkAllResults.Add($r)
         }
 
-        Update-GridData -Grid $bulkGrid -Records $script:BulkAllResults
+        Sync-GridData -Grid $bulkGrid -Records $script:BulkAllResults
         $bulkResultsLabel.Text = "Results: $($script:BulkAllResults.Count) record(s) remaining"
         $bulkRemoveAllButton.Enabled = $script:BulkAllResults.Count -gt 0
         $statusLabel.Text = "Status: Bulk removal done - deleted $($result.DeletedCount), failed $($result.FailedCount)"
@@ -1994,10 +1994,10 @@ $bulkRemoveAllButton.Add_Click({
 
 $bulkClearButton.Add_Click({
     $bulkInputTextBox.Clear()
-    Clear-UiLogs
+    Clear-UiLog
     $script:BulkAllResults.Clear()
     $script:BulkInputTerms.Clear()
-    Update-GridData -Grid $bulkGrid -Records @()
+    Sync-GridData -Grid $bulkGrid -Records @()
     $bulkResultsLabel.Text = 'Results: search to populate'
     $bulkRemoveAllButton.Enabled = $false
     $statusLabel.Text = 'Status: Bulk results cleared'
@@ -2104,8 +2104,8 @@ Created for operational cleanup workflows.
     ) | Out-Null
 })
 
-Update-GridData -Grid $grid
-Update-GridData -Grid $previewGrid -Records @()
+Sync-GridData -Grid $grid
+Sync-GridData -Grid $previewGrid -Records @()
 Write-UiLog -TextBox $logTextBox -Message 'Ready. Connect to Microsoft Graph, search by exact device name or serial number, then remove the records you select.'
 Write-UiLog -TextBox $logTextBox -Message 'This is a GUI app: terminal can remain empty while this window is open.'
 Write-UiLog -TextBox $logTextBox -Message 'Simple mode is active: Connect Graph uses popup sign-in (no terminal steps).'
@@ -2115,3 +2115,4 @@ Write-UiLog -TextBox $logTextBox -Message "Preferred Graph auth version for this
 
 [void]$form.ShowDialog()
 #pragma warning restore PSUseApprovedVerbs
+
