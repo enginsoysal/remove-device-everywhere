@@ -1198,6 +1198,10 @@ function Sync-GridData {
         [object]$Records = $script:SearchResults
     )
 
+    # PS 5.1 binder can trigger PropertyNotFoundStrict internally on .Count during WinForms overload binding.
+    # Keep strict mode off in this function scope so grid row operations remain stable.
+    Set-StrictMode -Off
+
     if (-not $PSCmdlet.ShouldProcess('UI Grid', 'Sync grid data')) {
         return
     }
