@@ -2087,8 +2087,13 @@ $bulkSearchButton.Add_Click({
     param($sender, $eventArgs)
 
     try {
-        $lineValues = ConvertTo-ObjectArray -InputObject $bulkInputTextBox.Lines
-        if (-not $lineValues.Count) {
+        if ([string]::IsNullOrWhiteSpace($bulkInputTextBox.Text)) {
+            [System.Windows.Forms.MessageBox]::Show('Enter at least one device name or serial number.', 'Nothing to Search', 'OK', 'Warning') | Out-Null
+            return
+        }
+
+        [string[]]$lineValues = $bulkInputTextBox.Lines
+        if (-not $lineValues.Length) {
             [System.Windows.Forms.MessageBox]::Show('Enter at least one device name or serial number.', 'Nothing to Search', 'OK', 'Warning') | Out-Null
             return
         }
