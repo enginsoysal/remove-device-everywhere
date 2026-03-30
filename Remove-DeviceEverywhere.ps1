@@ -1215,7 +1215,7 @@ function Sync-GridData {
     }
 
     $Grid.DataSource = $null
-    $Grid.DataSource = $bindingList
+    $Grid.DataSource = [object]$bindingList
     foreach ($column in $Grid.Columns) {
         $column.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
     }
