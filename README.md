@@ -1,93 +1,144 @@
 # Remove Device Everywhere
 
-## Single Device Search
+**One GUI to find and remove device records across Intune, Entra ID, and Autopilot in minutes, not hours.**
 
-Default view:
+## 🚀 Problem
 
-![Single Device Search tab](screenshots/tab-single-device.png)
+Device cleanup is messy in real environments.
 
-With a search filled in:
+- Records live across multiple Microsoft portals.
+- Device naming is inconsistent.
+- Stale, duplicate, or orphaned records break admin workflows.
+- Manual cleanup is slow and error-prone.
 
-![Single Device Search tab with search](screenshots/tab-single-device_With_Search.png)
+## ✅ Solution
 
-PowerShell GUI for searching and deleting matching device records across:
+Remove Device Everywhere gives IT admins a single PowerShell GUI to search and remove matching records across:
 
-- Intune managed devices
-- Microsoft Entra ID devices
-- Windows Autopilot device identities
+- Microsoft Intune
+- Microsoft Entra ID (Azure AD)
+- Windows Autopilot
 
-## What it does
+You search once, review results, confirm, and clean up from one place.
 
-You type an exact device name or serial number into the GUI, click **Search**, review the matching records, then delete the selected rows.
+## 🖥 Features
 
-When **Also remove linked records with the same serial or Azure device ID** is enabled, the script expands your selection to the linked records for that same device before deletion.
+- GUI-first workflow (no day-to-day terminal usage required)
+- Exact search by device name or serial number
+- Multi-source results in one grid (Intune, Entra, Autopilot)
+- Removal Preview to see what will be deleted before action
+- Optional linked cleanup by serial/Azure device ID
+- Remove selected items or **Remove All Found**
+- Bulk mode using CSV input
+- Built-in CSV audit logging for traceability
 
-The GUI also includes:
+## ⚠️ Safety Notice
 
-- A live **Removal Preview** grid that shows exactly which records will be deleted
-- A **Remove All Found** button for deleting every result returned by the current search
-- Automatic CSV audit logging for each delete attempt
+This tool performs **permanent deletions**.
 
-## Bulk Operations
+- Every removal action requires confirmation.
+- Use the preview and confirmation dialog carefully.
+- Validate search results before clicking remove.
 
-Default view:
+## 📦 Installation
 
-![Bulk Operations tab](screenshots/tab-bulk-operations.png)
+### Option 1: PowerShell Gallery
 
-With a search file loaded:
+```powershell
+Install-Script -Name Remove-DeviceEverywhere -Scope CurrentUser
+```
 
-![Bulk Operations tab with search](screenshots/tab-bulk-operations_With_Search.png)
+Then run:
 
-The **Bulk Operations** tab lets you load a CSV list of device names or serial numbers and remove them all in one run.
+```powershell
+Remove-DeviceEverywhere.ps1
+```
 
-## Prerequisites
+### Option 2: Manual from GitHub
 
-- Windows PowerShell 5.1 or PowerShell 7 on Windows
-- Internet access to Microsoft Graph
-- Permission to install the `Microsoft.Graph.Authentication` PowerShell module for the current user
-- A signed-in account with Graph delegated permissions and directory roles that allow device deletion
-
-The script bootstraps the NuGet package provider and the Graph authentication module automatically for the current user. It is designed to avoid the interactive package-management prompts that PowerShell normally shows.
-If the Graph module files were marked as downloaded from the internet, the script also unblocks the installed module files before import so the module can load cleanly.
-
-## Graph permissions requested
-
-- `DeviceManagementManagedDevices.ReadWrite.All`
-- `DeviceManagementServiceConfig.ReadWrite.All`
-- `Directory.AccessAsUser.All`
-
-For deleting Entra ID devices, the signed-in user also needs an appropriate Microsoft Entra role such as Cloud Device Administrator, Intune Administrator, or another supported role.
-
-## Run
+1. Clone or download this repository.
+2. Open PowerShell in the project folder.
+3. Run:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\Remove-DeviceEverywhere.ps1
 ```
 
-## Audit log
+## ▶️ Usage
 
-Each run writes a CSV log to the `AuditLogs` folder next to the script.
+1. Launch the script.
+2. Click **Connect Graph** and complete sign-in.
+3. Search by exact device name or serial.
+4. Review found records and preview.
+5. Remove selected records (or remove all found).
+6. Check audit log output.
 
-Example:
+## 🔐 Permissions Required
 
-```text
-AuditLogs\device-removal-20260327-143501.csv
-```
+Graph delegated permissions requested:
 
-The CSV includes timestamp, operator, search term, source system, device identifiers, outcome, and message.
+- `DeviceManagementManagedDevices.ReadWrite.All`
+- `DeviceManagementServiceConfig.ReadWrite.All`
+- `Directory.AccessAsUser.All`
 
-## Connection behavior
+Required admin roles depend on scope, typically:
 
-After you click **Connect Graph**, the expected next step is the normal Microsoft sign-in flow. If the sign-in window appears behind other windows, bring it to the front and complete authentication there.
+- Intune Administrator
+- Cloud Device Administrator
+- Or another role with equivalent delete rights
 
-## Notes
+## 📊 Audit Logging
 
-- Intune managed device deletion uses the `v1.0` Graph endpoint.
-- Entra ID device deletion uses the `v1.0` Graph endpoint.
-- Windows Autopilot deletion uses the `beta` Graph endpoint because that record type still requires it.
-- For Windows Autopilot records, the script also attempts to remove the deployment profile assignment link before deleting the device identity.
-- The script removes the record types you select in the results grid, and can expand that selection to linked records for the same device.
-- The removal preview updates when you change the current selection or toggle linked cleanup.
-- `Remove All Found` deletes every record currently shown in the search results grid.
-- Deletion is permanent. Review the selected rows before you confirm.
+Every delete attempt is written to CSV in `AuditLogs`.
+
+Each row includes:
+
+- Timestamp
+- Operator
+- Search term
+- Source system
+- Device identifiers
+- Outcome (Deleted/Failed)
+- Message
+
+This gives you a clean operational trail for change tracking and review.
+
+## 📂 Bulk Operations
+
+Bulk mode accepts CSV input (for device names or serials).
+
+- Load CSV
+- Search all rows
+- Review consolidated results
+- Remove in controlled batches
+
+Ideal for large cleanup jobs and migration waves.
+
+## 🧰 Prerequisites
+
+- Windows PowerShell 5.1 or PowerShell 7 on Windows
+- Internet access to Microsoft Graph
+- Rights to install `Microsoft.Graph.Authentication` for current user
+- Account with appropriate Graph permissions and directory roles
+
+## 💡 Example Use Cases
+
+- Tenant cleanup after pilot/test devices
+- Migration projects with duplicate records
+- Removing stale hybrid/AAD-joined leftovers
+- Autopilot and Intune record cleanup before re-enrollment
+
+## 🤝 Contributing
+
+Issues and pull requests are welcome.
+
+- Keep changes focused.
+- Add/update tests when behavior changes.
+- Prefer clear admin-focused UX and safe defaults.
+
+## 📜 License
+
+MIT License. See `LICENSE`.
+
+Stop cleaning devices manually across multiple portals.
