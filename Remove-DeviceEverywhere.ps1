@@ -1239,19 +1239,18 @@ function Sync-GridData {
         $deleteUriProperty = if ($item) { $item.PSObject.Properties['DeleteUri'] } else { $null }
         $detailsProperty = if ($item) { $item.PSObject.Properties['Details'] } else { $null }
 
-        $rowIndex = $Grid.Rows.Add(
-            $(if ($sourceProperty) { [string]$sourceProperty.Value } else { '' }),
-            $(if ($displayNameProperty) { [string]$displayNameProperty.Value } else { '' }),
-            $(if ($serialNumberProperty) { [string]$serialNumberProperty.Value } else { '' }),
-            $(if ($primaryUserProperty) { [string]$primaryUserProperty.Value } else { '' }),
-            $(if ($operatingSystemProperty) { [string]$operatingSystemProperty.Value } else { '' }),
-            $(if ($recordIdProperty) { [string]$recordIdProperty.Value } else { '' }),
-            $(if ($azureDeviceIdProperty) { [string]$azureDeviceIdProperty.Value } else { '' }),
-            $(if ($deleteUriProperty) { [string]$deleteUriProperty.Value } else { '' }),
-            $(if ($detailsProperty) { [string]$detailsProperty.Value } else { '' })
-        )
-
-        $Grid.Rows[$rowIndex].Tag = $item
+        $rowIndex = $Grid.Rows.Add()
+        $row = $Grid.Rows[$rowIndex]
+        $row.Cells['Source'].Value = if ($sourceProperty) { [string]$sourceProperty.Value } else { '' }
+        $row.Cells['DisplayName'].Value = if ($displayNameProperty) { [string]$displayNameProperty.Value } else { '' }
+        $row.Cells['SerialNumber'].Value = if ($serialNumberProperty) { [string]$serialNumberProperty.Value } else { '' }
+        $row.Cells['PrimaryUser'].Value = if ($primaryUserProperty) { [string]$primaryUserProperty.Value } else { '' }
+        $row.Cells['OperatingSystem'].Value = if ($operatingSystemProperty) { [string]$operatingSystemProperty.Value } else { '' }
+        $row.Cells['RecordId'].Value = if ($recordIdProperty) { [string]$recordIdProperty.Value } else { '' }
+        $row.Cells['AzureDeviceId'].Value = if ($azureDeviceIdProperty) { [string]$azureDeviceIdProperty.Value } else { '' }
+        $row.Cells['DeleteUri'].Value = if ($deleteUriProperty) { [string]$deleteUriProperty.Value } else { '' }
+        $row.Cells['Details'].Value = if ($detailsProperty) { [string]$detailsProperty.Value } else { '' }
+        $row.Tag = $item
     }
     foreach ($column in $Grid.Columns) {
         $column.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
@@ -2331,5 +2330,3 @@ Write-UiLog -TextBox $logTextBox -Message "Preferred Graph auth version for this
 
 [void]$form.ShowDialog()
 #pragma warning restore PSUseApprovedVerbs
-
-
