@@ -1,6 +1,6 @@
 <#PSScriptInfo
 
-.VERSION 1.0.0
+.VERSION 1.0.1
 
 .GUID 876d6ee4-d403-42db-b4e9-e03a7ef6d488
 
@@ -18,7 +18,7 @@
 
 .ICONURI https://raw.githubusercontent.com/enginsoysal/remove-device-everywhere/main/screenshots/tab-single-device.png
 
-.RELEASENOTES Initial PSGallery publication.
+.RELEASENOTES Stability update for PowerShell 5.1 GUI runtime: fixed strict-mode binder crashes in single and bulk search/remove flows, hardened grid/preview handling, and added completion confirmations with input reset after removals.
 
 #>
 
