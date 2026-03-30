@@ -1,4 +1,4 @@
-﻿<#PSScriptInfo
+<#PSScriptInfo
 
 .VERSION 1.0.0
 
@@ -1214,21 +1214,21 @@ function Sync-GridData {
         }
     }
 
-    $table = New-Object System.Data.DataTable
-    [void]$table.Columns.Add('Source', [string])
-    [void]$table.Columns.Add('DisplayName', [string])
-    [void]$table.Columns.Add('SerialNumber', [string])
-    [void]$table.Columns.Add('PrimaryUser', [string])
-    [void]$table.Columns.Add('OperatingSystem', [string])
-    [void]$table.Columns.Add('RecordId', [string])
-    [void]$table.Columns.Add('AzureDeviceId', [string])
-    [void]$table.Columns.Add('DeleteUri', [string])
-    [void]$table.Columns.Add('Details', [string])
-    [void]$table.Columns.Add('__Record', [object])
+    $Grid.DataSource = $null
+    $Grid.Rows.Clear()
+    $Grid.Columns.Clear()
+
+    [void]$Grid.Columns.Add('Source', 'Source')
+    [void]$Grid.Columns.Add('DisplayName', 'DisplayName')
+    [void]$Grid.Columns.Add('SerialNumber', 'SerialNumber')
+    [void]$Grid.Columns.Add('PrimaryUser', 'PrimaryUser')
+    [void]$Grid.Columns.Add('OperatingSystem', 'OperatingSystem')
+    [void]$Grid.Columns.Add('RecordId', 'RecordId')
+    [void]$Grid.Columns.Add('AzureDeviceId', 'AzureDeviceId')
+    [void]$Grid.Columns.Add('DeleteUri', 'DeleteUri')
+    [void]$Grid.Columns.Add('Details', 'Details')
 
     foreach ($item in $recordItems) {
-        $row = $table.NewRow()
-
         $sourceProperty = if ($item) { $item.PSObject.Properties['Source'] } else { $null }
         $displayNameProperty = if ($item) { $item.PSObject.Properties['DisplayName'] } else { $null }
         $serialNumberProperty = if ($item) { $item.PSObject.Properties['SerialNumber'] } else { $null }
@@ -1239,33 +1239,26 @@ function Sync-GridData {
         $deleteUriProperty = if ($item) { $item.PSObject.Properties['DeleteUri'] } else { $null }
         $detailsProperty = if ($item) { $item.PSObject.Properties['Details'] } else { $null }
 
-        $row['Source'] = if ($sourceProperty) { [string]$sourceProperty.Value } else { '' }
-        $row['DisplayName'] = if ($displayNameProperty) { [string]$displayNameProperty.Value } else { '' }
-        $row['SerialNumber'] = if ($serialNumberProperty) { [string]$serialNumberProperty.Value } else { '' }
-        $row['PrimaryUser'] = if ($primaryUserProperty) { [string]$primaryUserProperty.Value } else { '' }
-        $row['OperatingSystem'] = if ($operatingSystemProperty) { [string]$operatingSystemProperty.Value } else { '' }
-        $row['RecordId'] = if ($recordIdProperty) { [string]$recordIdProperty.Value } else { '' }
-        $row['AzureDeviceId'] = if ($azureDeviceIdProperty) { [string]$azureDeviceIdProperty.Value } else { '' }
-        $row['DeleteUri'] = if ($deleteUriProperty) { [string]$deleteUriProperty.Value } else { '' }
-        $row['Details'] = if ($detailsProperty) { [string]$detailsProperty.Value } else { '' }
-        $row['__Record'] = $item
+        $rowIndex = $Grid.Rows.Add(
+            $(if ($sourceProperty) { [string]$sourceProperty.Value } else { '' }),
+            $(if ($displayNameProperty) { [string]$displayNameProperty.Value } else { '' }),
+            $(if ($serialNumberProperty) { [string]$serialNumberProperty.Value } else { '' }),
+            $(if ($primaryUserProperty) { [string]$primaryUserProperty.Value } else { '' }),
+            $(if ($operatingSystemProperty) { [string]$operatingSystemProperty.Value } else { '' }),
+            $(if ($recordIdProperty) { [string]$recordIdProperty.Value } else { '' }),
+            $(if ($azureDeviceIdProperty) { [string]$azureDeviceIdProperty.Value } else { '' }),
+            $(if ($deleteUriProperty) { [string]$deleteUriProperty.Value } else { '' }),
+            $(if ($detailsProperty) { [string]$detailsProperty.Value } else { '' })
+        )
 
-        [void]$table.Rows.Add($row)
+        $Grid.Rows[$rowIndex].Tag = $item
     }
-
-    $Grid.DataSource = $null
-    $dataView = $table.DefaultView
-    $Grid.DataSource = [object]$dataView
     foreach ($column in $Grid.Columns) {
         $column.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
     }
 
     if ($Grid.Columns['DeleteUri']) {
         $Grid.Columns['DeleteUri'].Visible = $false
-    }
-
-    if ($Grid.Columns['__Record']) {
-        $Grid.Columns['__Record'].Visible = $false
     }
 
     if ($Grid.Columns['RecordId']) {
@@ -1298,22 +1291,14 @@ function Get-SelectedRecord {
     $selected = New-Object System.Collections.Generic.List[object]
 
     foreach ($row in $Grid.SelectedRows) {
-        if (-not $row.DataBoundItem) {
+        if ($row.Tag) {
+            [void]$selected.Add($row.Tag)
             continue
         }
 
-        if ($row.DataBoundItem -is [System.Data.DataRowView]) {
-            $boundRow = $row.DataBoundItem
-            if ($boundRow.Row.Table.Columns.Contains('__Record')) {
-                $originalRecord = $boundRow['__Record']
-                if ($originalRecord) {
-                    [void]$selected.Add($originalRecord)
-                    continue
-                }
-            }
+        if ($row.DataBoundItem) {
+            [void]$selected.Add($row.DataBoundItem)
         }
-
-        [void]$selected.Add($row.DataBoundItem)
     }
 
     return $selected
@@ -1343,7 +1328,7 @@ function Sync-PreviewData {
     $selected = Get-SelectedRecord -Grid $SourceGrid
 
     if (-not $selected.Count) {
-        Sync-GridData -Grid $PreviewGrid -Records @()
+        Sync-GridData -Grid $PreviewGrid -Records $null
         $PreviewLabel.Text = 'Removal Preview: Select one or more results to see exactly what will be deleted'
         return
     }
@@ -1893,7 +1878,7 @@ $searchButton.Add_Click({
         $statusLabel.Text = "Status: Searching for $term"
         Search-DeviceEverywhere -SearchTerm $term -LogTextBox $logTextBox | Out-Null
         Sync-GridData -Grid $grid
-        Sync-GridData -Grid $previewGrid -Records @()
+        Sync-GridData -Grid $previewGrid -Records $null
         $previewLabel.Text = 'Removal Preview: Select one or more results to see exactly what will be deleted'
         $removeButton.Enabled = $script:SearchResults.Count -gt 0
         $removeAllButton.Enabled = $script:SearchResults.Count -gt 0
@@ -1980,7 +1965,7 @@ $removeAllButton.Add_Click({
         $form.UseWaitCursor = $true
         $result = Invoke-RemovalPlan -Records $allRecords -LogTextBox $logTextBox
         Sync-GridData -Grid $grid
-        Sync-GridData -Grid $previewGrid -Records @()
+        Sync-GridData -Grid $previewGrid -Records $null
         $previewLabel.Text = 'Removal Preview: Select one or more results to see exactly what will be deleted'
         $removeButton.Enabled = $script:SearchResults.Count -gt 0
         $removeAllButton.Enabled = $script:SearchResults.Count -gt 0
@@ -2008,7 +1993,7 @@ $clearButton.Add_Click({
     $script:PreviewResults.Clear()
     $script:CurrentSearchTerm = ''
     Sync-GridData -Grid $grid
-    Sync-GridData -Grid $previewGrid -Records @()
+    Sync-GridData -Grid $previewGrid -Records $null
     $removeButton.Enabled = $false
     $removeAllButton.Enabled = $false
     $selectAllButton.Enabled = $false
@@ -2228,7 +2213,7 @@ $bulkClearButton.Add_Click({
     Clear-UiLog
     $script:BulkAllResults.Clear()
     $script:BulkInputTerms.Clear()
-    Sync-GridData -Grid $bulkGrid -Records @()
+    Sync-GridData -Grid $bulkGrid -Records $null
     $bulkResultsLabel.Text = 'Results: search to populate'
     $bulkRemoveAllButton.Enabled = $false
     $statusLabel.Text = 'Status: Bulk results cleared'
@@ -2336,7 +2321,7 @@ Created for operational cleanup workflows.
 })
 
 Sync-GridData -Grid $grid
-Sync-GridData -Grid $previewGrid -Records @()
+Sync-GridData -Grid $previewGrid -Records $null
 Write-UiLog -TextBox $logTextBox -Message 'Ready. Connect to Microsoft Graph, search by exact device name or serial number, then remove the records you select.'
 Write-UiLog -TextBox $logTextBox -Message 'This is a GUI app: terminal can remain empty while this window is open.'
 Write-UiLog -TextBox $logTextBox -Message 'Simple mode is active: Connect Graph uses popup sign-in (no terminal steps).'
@@ -2346,4 +2331,5 @@ Write-UiLog -TextBox $logTextBox -Message "Preferred Graph auth version for this
 
 [void]$form.ShowDialog()
 #pragma warning restore PSUseApprovedVerbs
+
 
