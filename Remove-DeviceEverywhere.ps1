@@ -147,10 +147,12 @@ function Write-UiLog {
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     $line = "[$timestamp] $Message`r`n"
 
-    $targets = @($TextBox)
-    foreach ($candidate in @($script:PrimaryLogTextBox, $script:SecondaryLogTextBox)) {
+    $targets = New-Object System.Collections.Generic.List[System.Windows.Forms.TextBox]
+    [void]$targets.Add($TextBox)
+
+    foreach ($candidate in $script:PrimaryLogTextBox, $script:SecondaryLogTextBox) {
         if ($candidate -and ($targets -notcontains $candidate)) {
-            $targets += $candidate
+            [void]$targets.Add($candidate)
         }
     }
 
@@ -162,7 +164,7 @@ function Write-UiLog {
 }
 
 function Clear-UiLog {
-    foreach ($textBox in @($script:PrimaryLogTextBox, $script:SecondaryLogTextBox)) {
+    foreach ($textBox in $script:PrimaryLogTextBox, $script:SecondaryLogTextBox) {
         if ($textBox) {
             $textBox.Clear()
         }
@@ -470,19 +472,50 @@ function Invoke-GraphGetPaged {
         }
     }
 
-    return $items
+    Write-Output -NoEnumerate $items
+}
+
+function ConvertTo-ObjectArray {
+    param(
+        [AllowNull()]
+        [object]$InputObject
+    )
+
+    if ($null -eq $InputObject) {
+        return @()
+    }
+
+    if ($InputObject -is [string] -or $InputObject -isnot [System.Collections.IEnumerable]) {
+        return @($InputObject)
+    }
+
+    $items = New-Object System.Collections.Generic.List[object]
+    foreach ($item in $InputObject) {
+        [void]$items.Add($item)
+    }
+
+    return $items.ToArray()
+}
+
+function Test-IsGraphInternalServerError {
+    param(
+        [Parameter(Mandatory)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord
+    )
+
+    return $ErrorRecord.Exception.Message -match 'InternalServerError'
 }
 
 function Get-UniqueResultsByRecordId {
     param(
-        [Parameter(Mandatory)]
-        [System.Collections.IEnumerable]$Items
+        [AllowNull()]
+        [object]$Items
     )
 
     $unique = New-Object System.Collections.Generic.List[object]
     $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
 
-    foreach ($item in @($Items)) {
+    foreach ($item in (ConvertTo-ObjectArray -InputObject $Items)) {
         if (-not $item) {
             continue
         }
@@ -510,7 +543,7 @@ function Invoke-SearchBlock {
 
     try {
         $result = & $Action
-        return @($result)
+        return ConvertTo-ObjectArray -InputObject $result
     }
     catch {
         Write-UiErrorDetail -TextBox $LogTextBox -Prefix "$Label failed:" -ErrorRecord $_
@@ -635,8 +668,8 @@ function ConvertTo-NormalizedMatchValue {
 
 function Get-LocalMatchingItem {
     param(
-        [Parameter(Mandatory)]
-        [System.Collections.IEnumerable]$Items,
+        [AllowNull()]
+        [object]$Items,
 
         [Parameter(Mandatory)]
         [string]$SearchTerm,
@@ -653,7 +686,7 @@ function Get-LocalMatchingItem {
     $exactMatches = New-Object System.Collections.Generic.List[object]
     $containsMatches = New-Object System.Collections.Generic.List[object]
 
-    foreach ($item in @($Items)) {
+    foreach ($item in (ConvertTo-ObjectArray -InputObject $Items)) {
         if (-not $item) {
             continue
         }
@@ -722,7 +755,7 @@ function Find-ManagedDeviceMatch {
             -Details "Agent: $($_.managementAgent)"
     }
 
-    return Get-UniqueResultsByRecordId -Items $results
+    return Get-UniqueResultsByRecordId -Items @(ConvertTo-ObjectArray -InputObject $results)
 }
 
 function Find-EntraDeviceMatch {
@@ -805,7 +838,7 @@ function Find-ManagedDeviceMatchFallback {
             -Details "Agent: $($_.managementAgent)"
     }
 
-    return Get-UniqueResultsByRecordId -Items $results
+    return Get-UniqueResultsByRecordId -Items @(ConvertTo-ObjectArray -InputObject $results)
 }
 
 function Find-EntraDeviceMatchFallback {
@@ -865,7 +898,7 @@ function Find-AutopilotMatch {
             -Details "$($_.manufacturer) $($_.model)"
     }
 
-    return Get-UniqueResultsByRecordId -Items $results
+    return Get-UniqueResultsByRecordId -Items @(ConvertTo-ObjectArray -InputObject $results)
 }
 
 function Find-AutopilotMatchFallback {
@@ -891,7 +924,7 @@ function Find-AutopilotMatchFallback {
             -Details "$($_.manufacturer) $($_.model)"
     }
 
-    return Get-UniqueResultsByRecordId -Items $results
+    return Get-UniqueResultsByRecordId -Items @(ConvertTo-ObjectArray -InputObject $results)
 }
 
 function Search-DeviceEverywhere {
@@ -906,14 +939,14 @@ function Search-DeviceEverywhere {
     $script:CurrentSearchTerm = $SearchTerm
     $script:SearchResults.Clear()
     Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Intune managed devices..."
-    $managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device search' -Action { Find-ManagedDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+    $managedMatches = ConvertTo-ObjectArray -InputObject (Invoke-SearchBlock -Label 'Intune managed device search' -Action { Find-ManagedDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     if (-not $managedMatches.Count) {
         Write-UiLog -TextBox $LogTextBox -Message 'No Intune match from direct Graph filter. Running local fallback scan...'
-        $managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device fallback search' -Action { Find-ManagedDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        $managedMatches = ConvertTo-ObjectArray -InputObject (Invoke-SearchBlock -Label 'Intune managed device fallback search' -Action { Find-ManagedDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     }
     if (-not $managedMatches.Count) {
         Write-UiLog -TextBox $LogTextBox -Message 'No Intune match from name or serial. Trying direct managedDeviceId lookup from the search text...'
-        $managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device ID lookup' -Action { Find-ManagedDeviceMatchByRecordId -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        $managedMatches = ConvertTo-ObjectArray -InputObject (Invoke-SearchBlock -Label 'Intune managed device ID lookup' -Action { Find-ManagedDeviceMatchByRecordId -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     }
     Write-UiLog -TextBox $LogTextBox -Message "Intune managed device matches: $($managedMatches.Count)"
     foreach ($entry in $managedMatches) {
@@ -921,10 +954,35 @@ function Search-DeviceEverywhere {
     }
 
     Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Windows Autopilot..."
-    $autopilotMatches = @(Invoke-SearchBlock -Label 'Windows Autopilot search' -Action { Find-AutopilotMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
-    if (-not $autopilotMatches.Count) {
+    $autopilotMatches = @()
+    $autopilotServiceUnavailable = $false
+
+    try {
+        $autopilotMatches = ConvertTo-ObjectArray -InputObject (Find-AutopilotMatch -SearchTerm $SearchTerm)
+    }
+    catch {
+        if (Test-IsGraphInternalServerError -ErrorRecord $_) {
+            $autopilotServiceUnavailable = $true
+            Write-UiLog -TextBox $LogTextBox -Message 'Windows Autopilot search is temporarily unavailable because Microsoft Graph returned InternalServerError. Continuing without Autopilot results.'
+        }
+        else {
+            Write-UiErrorDetail -TextBox $LogTextBox -Prefix 'Windows Autopilot search failed:' -ErrorRecord $_
+        }
+    }
+
+    if (-not $autopilotMatches.Count -and -not $autopilotServiceUnavailable) {
         Write-UiLog -TextBox $LogTextBox -Message 'No Autopilot match from direct Graph filter. Running local fallback scan...'
-        $autopilotMatches = @(Invoke-SearchBlock -Label 'Windows Autopilot fallback search' -Action { Find-AutopilotMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        try {
+            $autopilotMatches = ConvertTo-ObjectArray -InputObject (Find-AutopilotMatchFallback -SearchTerm $SearchTerm)
+        }
+        catch {
+            if (Test-IsGraphInternalServerError -ErrorRecord $_) {
+                Write-UiLog -TextBox $LogTextBox -Message 'Windows Autopilot fallback scan is temporarily unavailable because Microsoft Graph returned InternalServerError. Continuing without Autopilot results.'
+            }
+            else {
+                Write-UiErrorDetail -TextBox $LogTextBox -Prefix 'Windows Autopilot fallback search failed:' -ErrorRecord $_
+            }
+        }
     }
     Write-UiLog -TextBox $LogTextBox -Message "Windows Autopilot matches: $($autopilotMatches.Count)"
     foreach ($entry in $autopilotMatches) {
@@ -932,10 +990,10 @@ function Search-DeviceEverywhere {
     }
 
     Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Entra ID devices..."
-    $entraMatches = @(Invoke-SearchBlock -Label 'Entra ID search' -Action { Find-EntraDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+    $entraMatches = ConvertTo-ObjectArray -InputObject (Invoke-SearchBlock -Label 'Entra ID search' -Action { Find-EntraDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     if (-not $entraMatches.Count) {
         Write-UiLog -TextBox $LogTextBox -Message 'No Entra direct match from Graph filter. Running local fallback scan...'
-        $entraMatches = @(Invoke-SearchBlock -Label 'Entra ID fallback search' -Action { Find-EntraDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        $entraMatches = ConvertTo-ObjectArray -InputObject (Invoke-SearchBlock -Label 'Entra ID fallback search' -Action { Find-EntraDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
     }
     Write-UiLog -TextBox $LogTextBox -Message "Entra ID direct matches: $($entraMatches.Count)"
     foreach ($entry in $entraMatches) {
@@ -948,7 +1006,7 @@ function Search-DeviceEverywhere {
 
     if ($linkedAzureDeviceIds) {
         Write-UiLog -TextBox $LogTextBox -Message 'Resolving linked Entra ID devices from Intune and Autopilot records...'
-        $linkedEntraMatches = @(Invoke-SearchBlock -Label 'Linked Entra ID resolution' -Action { Find-EntraDeviceMatchByAzureDeviceId -AzureDeviceIds $linkedAzureDeviceIds } -LogTextBox $LogTextBox)
+        $linkedEntraMatches = ConvertTo-ObjectArray -InputObject (Invoke-SearchBlock -Label 'Linked Entra ID resolution' -Action { Find-EntraDeviceMatchByAzureDeviceId -AzureDeviceIds $linkedAzureDeviceIds } -LogTextBox $LogTextBox)
         Write-UiLog -TextBox $LogTextBox -Message "Entra ID linked matches: $($linkedEntraMatches.Count)"
         foreach ($entry in $linkedEntraMatches) {
             [void]$script:SearchResults.Add($entry)
@@ -980,7 +1038,7 @@ function Resolve-RemovalPlan {
     )
 
     if ($ExpandLinked) {
-        return @(Get-LinkedRecord -SeedRecords $SeedRecords -AllRecords $AllRecords)
+        return ConvertTo-ObjectArray -InputObject (Get-LinkedRecord -SeedRecords $SeedRecords -AllRecords $AllRecords)
     }
 
     $unique = New-Object System.Collections.Generic.List[object]
@@ -1024,14 +1082,10 @@ function Get-LinkedRecord {
         $current = $queue.Dequeue()
         [void]$expanded.Add($current)
 
-        $keys = @(
-            ConvertTo-NormalizedMatchValue -Value $current.AzureDeviceId
-            ConvertTo-NormalizedMatchValue -Value $current.SerialNumber
-        ) | Where-Object { $_ }
-
-        foreach ($key in $keys) {
-            [void]$seenKeys.Add($key)
-        }
+        $keyA = ConvertTo-NormalizedMatchValue -Value $current.AzureDeviceId
+        $keyB = ConvertTo-NormalizedMatchValue -Value $current.SerialNumber
+        if ($keyA) { [void]$seenKeys.Add($keyA) }
+        if ($keyB) { [void]$seenKeys.Add($keyB) }
 
         foreach ($candidate in $AllRecords) {
             $candidateId = "$($candidate.Source)|$($candidate.RecordId)"
@@ -1039,10 +1093,11 @@ function Get-LinkedRecord {
                 continue
             }
 
-            $candidateKeys = @(
-                ConvertTo-NormalizedMatchValue -Value $candidate.AzureDeviceId
-                ConvertTo-NormalizedMatchValue -Value $candidate.SerialNumber
-            ) | Where-Object { $_ }
+            $ckA = ConvertTo-NormalizedMatchValue -Value $candidate.AzureDeviceId
+            $ckB = ConvertTo-NormalizedMatchValue -Value $candidate.SerialNumber
+            $candidateKeys = New-Object System.Collections.Generic.List[string]
+            if ($ckA) { [void]$candidateKeys.Add($ckA) }
+            if ($ckB) { [void]$candidateKeys.Add($ckB) }
 
             $isLinked = $false
             foreach ($candidateKey in $candidateKeys) {
@@ -1137,7 +1192,8 @@ function Sync-GridData {
         [System.Windows.Forms.DataGridView]$Grid,
 
         [Parameter()]
-        [System.Collections.IEnumerable]$Records = $script:SearchResults
+        [AllowNull()]
+        [object]$Records = $script:SearchResults
     )
 
     if (-not $PSCmdlet.ShouldProcess('UI Grid', 'Sync grid data')) {
@@ -1145,7 +1201,7 @@ function Sync-GridData {
     }
 
     $bindingList = New-Object System.ComponentModel.BindingList[object]
-    foreach ($item in @($Records)) {
+    foreach ($item in (ConvertTo-ObjectArray -InputObject $Records)) {
         [void]$bindingList.Add($item)
     }
 
@@ -1217,7 +1273,7 @@ function Sync-PreviewData {
     }
 
     $script:PreviewResults.Clear()
-    $selected = @(Get-SelectedRecord -Grid $SourceGrid)
+    $selected = ConvertTo-ObjectArray -InputObject (Get-SelectedRecord -Grid $SourceGrid)
 
     if (-not $selected.Count) {
         Sync-GridData -Grid $PreviewGrid -Records @()
@@ -1225,7 +1281,7 @@ function Sync-PreviewData {
         return
     }
 
-    $plannedRecords = @(Resolve-RemovalPlan -SeedRecords $selected -AllRecords $script:SearchResults -ExpandLinked:$ExpandLinked)
+    $plannedRecords = ConvertTo-ObjectArray -InputObject (Resolve-RemovalPlan -SeedRecords $selected -AllRecords $script:SearchResults -ExpandLinked:$ExpandLinked)
     foreach ($record in $plannedRecords) {
         [void]$script:PreviewResults.Add($record)
     }
@@ -1966,8 +2022,10 @@ $bulkLoadFileButton.Add_Click({
 })
 
 $bulkSearchButton.Add_Click({
+    param($sender, $eventArgs)
+
     try {
-        $lineValues = @($bulkInputTextBox.Lines)
+        $lineValues = ConvertTo-ObjectArray -InputObject $bulkInputTextBox.Lines
         if (-not $lineValues.Count) {
             [System.Windows.Forms.MessageBox]::Show('Enter at least one device name or serial number.', 'Nothing to Search', 'OK', 'Warning') | Out-Null
             return
@@ -1987,7 +2045,7 @@ $bulkSearchButton.Add_Click({
             [void]$termSet.Add($termValue)
         }
 
-        $terms = @($termSet | Sort-Object)
+        $terms = ConvertTo-ObjectArray -InputObject ($termSet | Sort-Object)
         if (-not $terms.Count) {
             [System.Windows.Forms.MessageBox]::Show('No unique search terms found.', 'Nothing to Search', 'OK', 'Warning') | Out-Null
             return
