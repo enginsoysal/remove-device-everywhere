@@ -69,8 +69,11 @@ function Get-AppBasePath {
         return $PSScriptRoot
     }
 
-    if ($MyInvocation -and $MyInvocation.MyCommand -and $MyInvocation.MyCommand.Path) {
-        return (Split-Path -Path $MyInvocation.MyCommand.Path -Parent)
+    if ($MyInvocation -and $MyInvocation.MyCommand) {
+        $pathProperty = $MyInvocation.MyCommand.PSObject.Properties['Path']
+        if ($pathProperty -and -not [string]::IsNullOrWhiteSpace([string]$pathProperty.Value)) {
+            return (Split-Path -Path ([string]$pathProperty.Value) -Parent)
+        }
     }
 
     if ([AppDomain]::CurrentDomain.BaseDirectory) {
@@ -324,7 +327,18 @@ function Connect-DeviceCleanupGraph {
     )
 
     $module = Initialize-MicrosoftGraphModule
-    Import-Module -Name $module.Path -Force -ErrorAction Stop
+    $modulePathProperty = if ($module) { $module.PSObject.Properties['Path'] } else { $null }
+    $moduleImportTarget = if ($modulePathProperty -and -not [string]::IsNullOrWhiteSpace([string]$modulePathProperty.Value)) {
+        [string]$modulePathProperty.Value
+    }
+    elseif ($module -and -not [string]::IsNullOrWhiteSpace([string]$module.ModuleBase)) {
+        [string]$module.ModuleBase
+    }
+    else {
+        [string]$module.Name
+    }
+
+    Import-Module -Name $moduleImportTarget -Force -ErrorAction Stop
     if ($LogTextBox) {
         Write-UiLog -TextBox $LogTextBox -Message "Loaded $($module.Name) version $($module.Version) from $($module.ModuleBase)"
         Write-UiLog -TextBox $LogTextBox -Message "PowerShell host: $($Host.Name) $($PSVersionTable.PSVersion) [$($PSVersionTable.PSEdition)]"
