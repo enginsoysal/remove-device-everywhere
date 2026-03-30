@@ -1966,19 +1966,33 @@ $bulkLoadFileButton.Add_Click({
 })
 
 $bulkSearchButton.Add_Click({
-    $rawLines = $bulkInputTextBox.Lines | Where-Object { $_.Trim() }
-    if (-not $rawLines) {
-        [System.Windows.Forms.MessageBox]::Show('Enter at least one device name or serial number.', 'Nothing to Search', 'OK', 'Warning') | Out-Null
-        return
-    }
-
-    $terms = @($rawLines | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Sort-Object -Unique)
-    if (-not $terms.Count) {
-        [System.Windows.Forms.MessageBox]::Show('No unique search terms found.', 'Nothing to Search', 'OK', 'Warning') | Out-Null
-        return
-    }
-
     try {
+        $lineValues = @($bulkInputTextBox.Lines)
+        if (-not $lineValues.Count) {
+            [System.Windows.Forms.MessageBox]::Show('Enter at least one device name or serial number.', 'Nothing to Search', 'OK', 'Warning') | Out-Null
+            return
+        }
+
+        $termSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($lineValue in $lineValues) {
+            if ($null -eq $lineValue) {
+                continue
+            }
+
+            $termValue = ([string]$lineValue).Trim()
+            if ([string]::IsNullOrWhiteSpace($termValue)) {
+                continue
+            }
+
+            [void]$termSet.Add($termValue)
+        }
+
+        $terms = @($termSet | Sort-Object)
+        if (-not $terms.Count) {
+            [System.Windows.Forms.MessageBox]::Show('No unique search terms found.', 'Nothing to Search', 'OK', 'Warning') | Out-Null
+            return
+        }
+
         $form.UseWaitCursor = $true
         $bulkSearchButton.Enabled = $false
         $bulkRemoveAllButton.Enabled = $false
