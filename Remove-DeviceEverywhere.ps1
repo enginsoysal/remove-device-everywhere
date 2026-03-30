@@ -1202,11 +1202,14 @@ function Sync-GridData {
         return
     }
 
+    [object[]]$recordArray = @($Records)
+
     $bindingList = New-Object System.ComponentModel.BindingList[object]
-    foreach ($item in (ConvertTo-ObjectArray -InputObject $Records)) {
+    foreach ($item in $recordArray) {
         [void]$bindingList.Add($item)
     }
 
+    $Grid.DataSource = $null
     $Grid.DataSource = $bindingList
     foreach ($column in $Grid.Columns) {
         $column.SortMode = [System.Windows.Forms.DataGridViewColumnSortMode]::Automatic
@@ -1275,7 +1278,7 @@ function Sync-PreviewData {
     }
 
     $script:PreviewResults.Clear()
-    $selected = ConvertTo-ObjectArray -InputObject (Get-SelectedRecord -Grid $SourceGrid)
+    [object[]]$selected = @(Get-SelectedRecord -Grid $SourceGrid)
 
     if (-not $selected.Count) {
         Sync-GridData -Grid $PreviewGrid -Records @()
@@ -1283,7 +1286,7 @@ function Sync-PreviewData {
         return
     }
 
-    $plannedRecords = ConvertTo-ObjectArray -InputObject (Resolve-RemovalPlan -SeedRecords $selected -AllRecords $script:SearchResults -ExpandLinked:$ExpandLinked)
+    [object[]]$plannedRecords = @(Resolve-RemovalPlan -SeedRecords $selected -AllRecords $script:SearchResults -ExpandLinked:$ExpandLinked)
     foreach ($record in $plannedRecords) {
         [void]$script:PreviewResults.Add($record)
     }
