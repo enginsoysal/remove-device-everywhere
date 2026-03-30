@@ -1330,6 +1330,8 @@ function Sync-PreviewData {
         [bool]$ExpandLinked
     )
 
+    Set-StrictMode -Off
+
     if (-not $PSCmdlet.ShouldProcess('UI Preview', 'Sync preview data')) {
         return
     }
@@ -1907,6 +1909,8 @@ $searchButton.Add_Click({
 
 $removeButton.Add_Click({
     try {
+        Set-StrictMode -Off
+
         $selected = @(Get-SelectedRecord -Grid $grid)
         if (-not $selected.Count) {
             [System.Windows.Forms.MessageBox]::Show('Select one or more rows to remove.', 'Nothing Selected', 'OK', 'Warning') | Out-Null
@@ -1951,6 +1955,8 @@ $removeButton.Add_Click({
 
 $removeAllButton.Add_Click({
     try {
+        Set-StrictMode -Off
+
         $allRecords = @(Resolve-RemovalPlan -SeedRecords @($script:SearchResults) -AllRecords $script:SearchResults -ExpandLinked:$false)
         if (-not $allRecords.Count) {
             [System.Windows.Forms.MessageBox]::Show('There are no search results to remove.', 'Nothing Found', 'OK', 'Information') | Out-Null
