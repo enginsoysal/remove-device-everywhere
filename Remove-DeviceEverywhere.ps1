@@ -1,4 +1,36 @@
-﻿Set-StrictMode -Version Latest
+﻿<#PSScriptInfo
+
+.VERSION 1.0.0
+
+.GUID 876d6ee4-d403-42db-b4e9-e03a7ef6d488
+
+.AUTHOR Engin Soysal
+
+.COMPANYNAME ProSysTech
+
+.COPYRIGHT (c) ProSysTech. All rights reserved.
+
+.TAGS intune entra autopilot graph winforms device cleanup
+
+.LICENSEURI https://github.com/enginsoysal/remove-device-everywhere/blob/main/LICENSE
+
+.PROJECTURI https://github.com/enginsoysal/remove-device-everywhere
+
+.ICONURI https://raw.githubusercontent.com/enginsoysal/remove-device-everywhere/main/screenshots/tab-single-device.png
+
+.RELEASENOTES Initial PSGallery publication.
+
+#>
+
+<#
+.SYNOPSIS
+PowerShell GUI for searching and removing device records across Intune, Entra ID, and Autopilot.
+
+.DESCRIPTION
+Interactive Windows Forms script for operational device cleanup with audit logging.
+#>
+
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 Add-Type -AssemblyName System.Windows.Forms
