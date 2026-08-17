@@ -9,26 +9,24 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  test-windows-powershell:
+    name: Windows PowerShell 5.1
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shell: [powershell, pwsh]
+    defaults:
+      run:
+        shell: powershell
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Install test modules
-        shell: ${{ matrix.shell }}
         run: |
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           Install-Module Pester -Scope CurrentUser -Force -MinimumVersion 5.5.0
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -MinimumVersion 1.22.0
 
       - name: Run PSScriptAnalyzer errors
-        shell: ${{ matrix.shell }}
         run: |
           $results = Invoke-ScriptAnalyzer -Path ./Remove-DeviceEverywhere.ps1 -Settings ./.vscode/PSScriptAnalyzerSettings.psd1 |
             Where-Object Severity -eq 'Error'
@@ -36,11 +34,41 @@ jobs:
           if ($results) { throw 'PSScriptAnalyzer reported one or more errors.' }
 
       - name: Run Pester tests
-        shell: ${{ matrix.shell }}
         run: |
           Invoke-Pester -Path ./tests -CI
 
       - name: Smoke test Windows Forms startup
-        shell: ${{ matrix.shell }}
+        run: |
+          ./Remove-DeviceEverywhere.ps1 -SmokeTest
+
+  test-powershell:
+    name: PowerShell 7
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install test modules
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -Scope CurrentUser -Force -MinimumVersion 5.5.0
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -MinimumVersion 1.22.0
+
+      - name: Run PSScriptAnalyzer errors
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path ./Remove-DeviceEverywhere.ps1 -Settings ./.vscode/PSScriptAnalyzerSettings.psd1 |
+            Where-Object Severity -eq 'Error'
+          $results | Format-Table -AutoSize
+          if ($results) { throw 'PSScriptAnalyzer reported one or more errors.' }
+
+      - name: Run Pester tests
+        run: |
+          Invoke-Pester -Path ./tests -CI
+
+      - name: Smoke test Windows Forms startup
         run: |
           ./Remove-DeviceEverywhere.ps1 -SmokeTest
