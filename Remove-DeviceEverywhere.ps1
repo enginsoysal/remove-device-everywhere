@@ -1,6 +1,6 @@
 <#PSScriptInfo
 
-.VERSION 1.0.1
+.VERSION 1.1.0
 
 .GUID 876d6ee4-d403-42db-b4e9-e03a7ef6d488
 
@@ -18,7 +18,7 @@
 
 .ICONURI https://raw.githubusercontent.com/enginsoysal/remove-device-everywhere/main/screenshots/tab-single-device.png
 
-.RELEASENOTES Stability update for PowerShell 5.1 GUI runtime: fixed strict-mode binder crashes in single and bulk search/remove flows, hardened grid/preview handling, and added completion confirmations with input reset after removals.
+.RELEASENOTES Safe Cleanup release: adds ordered removal plans, exact-versus-partial match protection, source selection, per-record outcomes, Graph retry handling, stable Autopilot v1.0 endpoints, tenant-aware audit logging, and safer bulk operations.
 
 #>
 
@@ -28,7 +28,18 @@ PowerShell GUI for searching and removing device records across Intune, Entra ID
 
 .DESCRIPTION
 Interactive Windows Forms script for operational device cleanup with audit logging.
+
+.PARAMETER NoGui
+Loads the core functions without opening the Windows Forms interface. Intended for automated tests.
+
+.PARAMETER SmokeTest
+Builds and opens the Windows Forms interface, then closes it immediately. Intended for automated UI startup checks.
 #>
+
+param(
+    [switch]$NoGui,
+    [switch]$SmokeTest
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -94,7 +105,9 @@ function Invoke-ExternalPowerShellRelaunchIfNeeded {
     }
 }
 
-Invoke-ExternalPowerShellRelaunchIfNeeded
+if (-not $NoGui) {
+    Invoke-ExternalPowerShellRelaunchIfNeeded
+}
 
 function Get-AppBasePath {
     if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
@@ -121,6 +134,7 @@ $script:GraphScopes = @(
     'Directory.AccessAsUser.All'
 )
 
+$script:AppVersion = '1.1.0'
 $script:PreferredGraphAuthVersion = if ($PSVersionTable.PSEdition -eq 'Desktop') { '2.33.0' } else { $null }
 
 $script:SearchResults = New-Object System.Collections.Generic.List[object]
@@ -129,8 +143,11 @@ $script:CurrentSearchTerm = ''
 $script:BulkInputTerms = New-Object System.Collections.Generic.List[string]
 $script:BulkAllResults = New-Object System.Collections.Generic.List[object]
 $script:BulkSearchRunning = $false
+$script:BulkRemoveSelectedRequested = $false
 $script:PrimaryLogTextBox = $null
 $script:SecondaryLogTextBox = $null
+$script:GraphContext = $null
+$script:SessionId = [guid]::NewGuid().ToString()
 $script:AppBasePath = Get-AppBasePath
 $script:AuditDirectory = Join-Path -Path $script:AppBasePath -ChildPath 'AuditLogs'
 $script:AuditLogPath = Join-Path -Path $script:AuditDirectory -ChildPath ("device-removal-{0}.csv" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
@@ -256,10 +273,18 @@ function Write-AuditEntry {
 
     Initialize-AuditLog
 
+    $recordInputTerm = if ($Record.PSObject.Properties['InputTerm']) { [string]$Record.InputTerm } else { $script:CurrentSearchTerm }
+    $recordMatchType = if ($Record.PSObject.Properties['MatchType']) { [string]$Record.MatchType } else { 'Unknown' }
+    $tenantId = if ($script:GraphContext -and $script:GraphContext.TenantId) { [string]$script:GraphContext.TenantId } else { '' }
+    $graphAccount = if ($script:GraphContext -and $script:GraphContext.Account) { [string]$script:GraphContext.Account } else { $env:USERNAME }
+
     $auditRecord = [PSCustomObject]@{
-        Timestamp       = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-        Operator        = $env:USERNAME
-        SearchTerm      = $script:CurrentSearchTerm
+        TimestampUtc    = [DateTime]::UtcNow.ToString('o')
+        SessionId       = $script:SessionId
+        TenantId        = $tenantId
+        Operator        = $graphAccount
+        SearchTerm      = $recordInputTerm
+        MatchType       = $recordMatchType
         Source          = $Record.Source
         DisplayName     = $Record.DisplayName
         SerialNumber    = $Record.SerialNumber
@@ -267,7 +292,7 @@ function Write-AuditEntry {
         OperatingSystem = $Record.OperatingSystem
         RecordId        = $Record.RecordId
         AzureDeviceId   = $Record.AzureDeviceId
-        DeleteUri       = $Record.DeleteUri
+        ExpectedAction  = if ($Record.PSObject.Properties['ExpectedAction']) { $Record.ExpectedAction } else { '' }
         Outcome         = $Outcome
         Message         = $Message
     }
@@ -292,9 +317,12 @@ function Initialize-PackageManagementPrerequisite {
         $psGallery = Get-PSRepository -Name PSGallery -ErrorAction Stop
     }
 
-    if ($psGallery.InstallationPolicy -ne 'Trusted') {
+    $originalInstallationPolicy = [string]$psGallery.InstallationPolicy
+    if ($originalInstallationPolicy -ne 'Trusted') {
         Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
     }
+
+    return $originalInstallationPolicy
 }
 
 function Initialize-MicrosoftGraphModule {
@@ -310,7 +338,7 @@ function Initialize-MicrosoftGraphModule {
     }
 
     if (-not $module) {
-        Initialize-PackageManagementPrerequisite
+        $originalInstallationPolicy = Initialize-PackageManagementPrerequisite
         $installParams = @{
             Name              = $moduleName
             Repository        = 'PSGallery'
@@ -318,14 +346,20 @@ function Initialize-MicrosoftGraphModule {
             Force             = $true
             AllowClobber      = $true
             Confirm           = $false
-            SkipPublisherCheck = $true
         }
 
         if ($requiredVersion) {
             $installParams.RequiredVersion = $requiredVersion
         }
 
-        Install-Module @installParams
+        try {
+            Install-Module @installParams
+        }
+        finally {
+            if ($originalInstallationPolicy -and $originalInstallationPolicy -ne 'Trusted') {
+                Set-PSRepository -Name PSGallery -InstallationPolicy $originalInstallationPolicy -ErrorAction SilentlyContinue
+            }
+        }
 
         $installedModules = Get-Module -ListAvailable -Name $moduleName
         if ($requiredVersion) {
@@ -406,7 +440,8 @@ function Connect-DeviceCleanupGraph {
         }
     }
 
-    return Get-MgContext
+    $script:GraphContext = Get-MgContext
+    return $script:GraphContext
 }
 
 function ConvertTo-ODataString {
@@ -446,6 +481,136 @@ function Get-EmbeddedGuidValue {
     return $null
 }
 
+function Get-GraphErrorStatusCode {
+    param(
+        [Parameter(Mandatory)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord
+    )
+
+    $responseProperty = $ErrorRecord.Exception.PSObject.Properties['Response']
+    if ($responseProperty -and $responseProperty.Value) {
+        $statusProperty = $responseProperty.Value.PSObject.Properties['StatusCode']
+        if ($statusProperty -and $null -ne $statusProperty.Value) {
+            try {
+                return [int]$statusProperty.Value
+            }
+            catch {
+                Write-Verbose 'Graph status code could not be converted to an integer; parsing the error text instead.'
+            }
+        }
+    }
+
+    $errorDetailsText = ''
+    $errorDetailsProperty = $ErrorRecord.PSObject.Properties['ErrorDetails']
+    if ($errorDetailsProperty -and $errorDetailsProperty.Value) {
+        $messageProperty = $errorDetailsProperty.Value.PSObject.Properties['Message']
+        if ($messageProperty) {
+            $errorDetailsText = [string]$messageProperty.Value
+        }
+    }
+    $errorText = "$($ErrorRecord.Exception.Message) $errorDetailsText"
+    $statusMatch = [regex]::Match($errorText, '(?<!\d)(429|500|502|503|504)(?!\d)')
+    if ($statusMatch.Success) {
+        return [int]$statusMatch.Groups[1].Value
+    }
+
+    return 0
+}
+
+function Get-GraphRetryDelaySeconds {
+    param(
+        [Parameter(Mandatory)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord,
+
+        [Parameter(Mandatory)]
+        [int]$Attempt
+    )
+
+    $responseProperty = $ErrorRecord.Exception.PSObject.Properties['Response']
+    if ($responseProperty -and $responseProperty.Value) {
+        $headersProperty = $responseProperty.Value.PSObject.Properties['Headers']
+        if ($headersProperty -and $headersProperty.Value) {
+            try {
+                $retryAfter = $headersProperty.Value['Retry-After']
+                if ($retryAfter) {
+                    $parsedDelay = 0
+                    if ([int]::TryParse([string]$retryAfter, [ref]$parsedDelay) -and $parsedDelay -gt 0) {
+                        return [Math]::Min($parsedDelay, 60)
+                    }
+                }
+            }
+            catch {
+                Write-Verbose 'Graph response headers do not expose Retry-After through an indexer.'
+            }
+        }
+    }
+
+    $errorDetailsText = ''
+    $errorDetailsProperty = $ErrorRecord.PSObject.Properties['ErrorDetails']
+    if ($errorDetailsProperty -and $errorDetailsProperty.Value) {
+        $messageProperty = $errorDetailsProperty.Value.PSObject.Properties['Message']
+        if ($messageProperty) {
+            $errorDetailsText = [string]$messageProperty.Value
+        }
+    }
+    $errorText = "$($ErrorRecord.Exception.Message) $errorDetailsText"
+    $retryMatch = [regex]::Match($errorText, '(?i)retry[- ]after\D{0,8}(\d+)')
+    if ($retryMatch.Success) {
+        return [Math]::Min([int]$retryMatch.Groups[1].Value, 60)
+    }
+
+    return [Math]::Min([Math]::Pow(2, ($Attempt - 1)), 30)
+}
+
+function Invoke-DeviceCleanupGraphRequest {
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('GET', 'POST', 'PATCH', 'DELETE')]
+        [string]$Method,
+
+        [Parameter(Mandatory)]
+        [string]$Uri,
+
+        [string]$OutputType,
+
+        [AllowNull()]
+        [object]$Body,
+
+        [ValidateRange(1, 10)]
+        [int]$MaxAttempts = 4
+    )
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            $requestParameters = @{
+                Method = $Method
+                Uri    = $Uri
+            }
+
+            if ($OutputType) {
+                $requestParameters.OutputType = $OutputType
+            }
+
+            if ($null -ne $Body) {
+                $requestParameters.Body = $Body
+                $requestParameters.ContentType = 'application/json'
+            }
+
+            return Invoke-MgGraphRequest @requestParameters
+        }
+        catch {
+            $statusCode = Get-GraphErrorStatusCode -ErrorRecord $_
+            $isTransient = $statusCode -in @(429, 500, 502, 503, 504)
+            if (-not $isTransient -or $attempt -ge $MaxAttempts) {
+                throw
+            }
+
+            $delaySeconds = Get-GraphRetryDelaySeconds -ErrorRecord $_ -Attempt $attempt
+            Start-Sleep -Seconds $delaySeconds
+        }
+    }
+}
+
 function Invoke-GraphGetPaged {
     param(
         [Parameter(Mandatory)]
@@ -456,7 +621,7 @@ function Invoke-GraphGetPaged {
     $nextLink = $Uri
 
     while ($nextLink) {
-        $response = Invoke-MgGraphRequest -Method GET -Uri $nextLink -OutputType PSObject
+        $response = Invoke-DeviceCleanupGraphRequest -Method GET -Uri $nextLink -OutputType PSObject
         if ($response.value) {
             foreach ($entry in $response.value) {
                 [void]$items.Add($entry)
@@ -560,7 +725,7 @@ function Get-GraphObject {
     )
 
     try {
-        return Invoke-MgGraphRequest -Method GET -Uri $Uri -OutputType PSObject
+        return Invoke-DeviceCleanupGraphRequest -Method GET -Uri $Uri -OutputType PSObject
     }
     catch {
         if ($_.Exception.Message -match '404|NotFound') {
@@ -609,10 +774,29 @@ function ConvertTo-ResultObject {
         [string]$RecordId,
         [string]$AzureDeviceId,
         [string]$DeleteUri,
-        [string]$Details
+        [string]$Details,
+        [string]$InputTerm = $script:CurrentSearchTerm,
+        [ValidateSet('Exact', 'Partial', 'Linked')]
+        [string]$MatchType = 'Exact',
+        [string]$LastActivity,
+        [string]$EnrollmentType,
+        [string]$Ownership,
+        [string]$ExpectedAction,
+        [string]$ResultStatus = 'Found'
     )
 
+    if (-not $ExpectedAction) {
+        $ExpectedAction = switch ($Source) {
+            'Intune Managed Device' { 'Delete from Intune (may retire or wipe)' }
+            'Windows Autopilot' { 'Deregister from Windows Autopilot' }
+            'Entra ID Device' { 'Delete Entra device identity' }
+            default { 'Delete record' }
+        }
+    }
+
     [PSCustomObject]@{
+        InputTerm      = $InputTerm
+        MatchType      = $MatchType
         Source          = $Source
         DisplayName     = $DisplayName
         SerialNumber    = $SerialNumber
@@ -620,6 +804,11 @@ function ConvertTo-ResultObject {
         OperatingSystem = $OperatingSystem
         RecordId        = $RecordId
         AzureDeviceId   = $AzureDeviceId
+        LastActivity    = $LastActivity
+        EnrollmentType  = $EnrollmentType
+        Ownership       = $Ownership
+        ExpectedAction  = $ExpectedAction
+        ResultStatus    = $ResultStatus
         DeleteUri       = $DeleteUri
         Details         = $Details
     }
@@ -649,6 +838,9 @@ function Find-ManagedDeviceMatchByRecordId {
             -OperatingSystem $device.operatingSystem `
             -RecordId $device.id `
             -AzureDeviceId $device.azureADDeviceId `
+            -LastActivity $device.lastSyncDateTime `
+            -EnrollmentType $device.deviceEnrollmentType `
+            -Ownership $device.managedDeviceOwnerType `
             -DeleteUri "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/$($device.id)" `
             -Details "Agent: $($device.managementAgent); Direct managedDeviceId lookup"
     )
@@ -706,12 +898,14 @@ function Get-LocalMatchingItem {
         }
 
         if ($values -contains $normalizedSearchTerm) {
+            $item | Add-Member -MemberType NoteProperty -Name '_RdeMatchType' -Value 'Exact' -Force
             [void]$exactMatches.Add($item)
             continue
         }
 
         foreach ($value in $values) {
             if ($value.Contains($normalizedSearchTerm)) {
+                $item | Add-Member -MemberType NoteProperty -Name '_RdeMatchType' -Value 'Partial' -Force
                 [void]$containsMatches.Add($item)
                 break
             }
@@ -732,7 +926,7 @@ function Find-ManagedDeviceMatch {
     )
 
     $escaped = ConvertTo-ODataString -Value $SearchTerm
-    $select = "id,deviceName,serialNumber,userPrincipalName,operatingSystem,azureADDeviceId,managementAgent"
+    $select = "id,deviceName,serialNumber,userPrincipalName,operatingSystem,azureADDeviceId,managementAgent,lastSyncDateTime,deviceEnrollmentType,managedDeviceOwnerType"
     $uris = @(
         "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=deviceName eq '$escaped'&`$select=$select"
         "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$filter=serialNumber eq '$escaped'&`$select=$select"
@@ -753,6 +947,9 @@ function Find-ManagedDeviceMatch {
             -OperatingSystem $_.operatingSystem `
             -RecordId $_.id `
             -AzureDeviceId $_.azureADDeviceId `
+            -LastActivity $_.lastSyncDateTime `
+            -EnrollmentType $_.deviceEnrollmentType `
+            -Ownership $_.managedDeviceOwnerType `
             -DeleteUri "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/$($_.id)" `
             -Details "Agent: $($_.managementAgent)"
     }
@@ -786,6 +983,7 @@ function Find-EntraDeviceMatch {
             -OperatingSystem $_.operatingSystem `
             -RecordId $_.id `
             -AzureDeviceId $_.deviceId `
+            -LastActivity $_.approximateLastSignInDateTime `
             -DeleteUri "https://graph.microsoft.com/v1.0/devices/$($_.id)" `
             -Details $lastSeen
     }
@@ -812,6 +1010,8 @@ function Find-EntraDeviceMatchByAzureDeviceId {
             -OperatingSystem $device.operatingSystem `
             -RecordId $device.id `
             -AzureDeviceId $device.deviceId `
+            -LastActivity $device.approximateLastSignInDateTime `
+            -MatchType 'Linked' `
             -DeleteUri "https://graph.microsoft.com/v1.0/devices/$($device.id)" `
             -Details $lastSeen
     }
@@ -823,12 +1023,13 @@ function Find-ManagedDeviceMatchFallback {
         [string]$SearchTerm
     )
 
-    $select = "id,deviceName,serialNumber,userPrincipalName,operatingSystem,azureADDeviceId,managementAgent"
+    $select = "id,deviceName,serialNumber,userPrincipalName,operatingSystem,azureADDeviceId,managementAgent,lastSyncDateTime,deviceEnrollmentType,managedDeviceOwnerType"
     $uri = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?`$select=$select"
     $items = Invoke-GraphGetPaged -Uri $uri
     $matchedItems = Get-LocalMatchingItem -Items $items -SearchTerm $SearchTerm -PropertyNames @('deviceName', 'serialNumber')
 
     $results = $matchedItems | ForEach-Object {
+        $matchType = if ($_.PSObject.Properties['_RdeMatchType']) { [string]$_._RdeMatchType } else { 'Exact' }
         ConvertTo-ResultObject -Source 'Intune Managed Device' `
             -DisplayName $_.deviceName `
             -SerialNumber $_.serialNumber `
@@ -836,6 +1037,10 @@ function Find-ManagedDeviceMatchFallback {
             -OperatingSystem $_.operatingSystem `
             -RecordId $_.id `
             -AzureDeviceId $_.azureADDeviceId `
+            -LastActivity $_.lastSyncDateTime `
+            -EnrollmentType $_.deviceEnrollmentType `
+            -Ownership $_.managedDeviceOwnerType `
+            -MatchType $matchType `
             -DeleteUri "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices/$($_.id)" `
             -Details "Agent: $($_.managementAgent)"
     }
@@ -856,6 +1061,7 @@ function Find-EntraDeviceMatchFallback {
 
     return $matchedItems | ForEach-Object {
         $lastSeen = if ($_.approximateLastSignInDateTime) { "Last sign-in: $($_.approximateLastSignInDateTime)" } else { 'Last sign-in: unknown' }
+        $matchType = if ($_.PSObject.Properties['_RdeMatchType']) { [string]$_._RdeMatchType } else { 'Exact' }
         ConvertTo-ResultObject -Source 'Entra ID Device' `
             -DisplayName $_.displayName `
             -SerialNumber '' `
@@ -863,6 +1069,8 @@ function Find-EntraDeviceMatchFallback {
             -OperatingSystem $_.operatingSystem `
             -RecordId $_.id `
             -AzureDeviceId $_.deviceId `
+            -LastActivity $_.approximateLastSignInDateTime `
+            -MatchType $matchType `
             -DeleteUri "https://graph.microsoft.com/v1.0/devices/$($_.id)" `
             -Details $lastSeen
     }
@@ -875,10 +1083,10 @@ function Find-AutopilotMatch {
     )
 
     $escaped = ConvertTo-ODataString -Value $SearchTerm
-    $select = "id,displayName,serialNumber,manufacturer,model,azureActiveDirectoryDeviceId"
+    $select = "id,displayName,serialNumber,manufacturer,model,azureActiveDirectoryDeviceId,lastContactedDateTime,enrollmentState"
     $uris = @(
-        "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=serialNumber eq '$escaped'&`$select=$select"
-        "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=displayName eq '$escaped'&`$select=$select"
+        "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=serialNumber eq '$escaped'&`$select=$select"
+        "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities?`$filter=displayName eq '$escaped'&`$select=$select"
     )
 
     $items = New-Object System.Collections.Generic.List[object]
@@ -896,8 +1104,10 @@ function Find-AutopilotMatch {
             -OperatingSystem '' `
             -RecordId $_.id `
             -AzureDeviceId $_.azureActiveDirectoryDeviceId `
-            -DeleteUri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/$($_.id)" `
-            -Details "$($_.manufacturer) $($_.model)"
+            -LastActivity $_.lastContactedDateTime `
+            -EnrollmentType $_.enrollmentState `
+            -DeleteUri "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities/$($_.id)" `
+            -Details "$($_.manufacturer) $($_.model); Enrollment: $($_.enrollmentState)"
     }
 
     return Get-UniqueResultsByRecordId -Items @(ConvertTo-ObjectArray -InputObject $results)
@@ -909,12 +1119,13 @@ function Find-AutopilotMatchFallback {
         [string]$SearchTerm
     )
 
-    $select = "id,displayName,serialNumber,manufacturer,model,azureActiveDirectoryDeviceId"
-    $uri = "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities?`$select=$select"
+    $select = "id,displayName,serialNumber,manufacturer,model,azureActiveDirectoryDeviceId,lastContactedDateTime,enrollmentState"
+    $uri = "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities?`$select=$select"
     $items = Invoke-GraphGetPaged -Uri $uri
     $matchedItems = Get-LocalMatchingItem -Items $items -SearchTerm $SearchTerm -PropertyNames @('displayName', 'serialNumber')
 
     $results = $matchedItems | ForEach-Object {
+        $matchType = if ($_.PSObject.Properties['_RdeMatchType']) { [string]$_._RdeMatchType } else { 'Exact' }
         ConvertTo-ResultObject -Source 'Windows Autopilot' `
             -DisplayName $_.displayName `
             -SerialNumber $_.serialNumber `
@@ -922,8 +1133,11 @@ function Find-AutopilotMatchFallback {
             -OperatingSystem '' `
             -RecordId $_.id `
             -AzureDeviceId $_.azureActiveDirectoryDeviceId `
-            -DeleteUri "https://graph.microsoft.com/beta/deviceManagement/windowsAutopilotDeviceIdentities/$($_.id)" `
-            -Details "$($_.manufacturer) $($_.model)"
+            -LastActivity $_.lastContactedDateTime `
+            -EnrollmentType $_.enrollmentState `
+            -MatchType $matchType `
+            -DeleteUri "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities/$($_.id)" `
+            -Details "$($_.manufacturer) $($_.model); Enrollment: $($_.enrollmentState)"
     }
 
     return Get-UniqueResultsByRecordId -Items @(ConvertTo-ObjectArray -InputObject $results)
@@ -935,78 +1149,88 @@ function Search-DeviceEverywhere {
         [string]$SearchTerm,
 
         [Parameter(Mandatory)]
-        [System.Windows.Forms.TextBox]$LogTextBox
+        [System.Windows.Forms.TextBox]$LogTextBox,
+
+        [ValidateSet('Intune', 'Autopilot', 'Entra')]
+        [string[]]$Sources = @('Intune', 'Autopilot', 'Entra')
     )
 
     $script:CurrentSearchTerm = $SearchTerm
     $script:SearchResults.Clear()
-    Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Intune managed devices..."
-    [object[]]$managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device search' -Action { Find-ManagedDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
-    if (-not $managedMatches.Count) {
-        Write-UiLog -TextBox $LogTextBox -Message 'No Intune match from direct Graph filter. Running local fallback scan...'
-        [object[]]$managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device fallback search' -Action { Find-ManagedDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
-    }
-    if (-not $managedMatches.Count) {
-        Write-UiLog -TextBox $LogTextBox -Message 'No Intune match from name or serial. Trying direct managedDeviceId lookup from the search text...'
-        [object[]]$managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device ID lookup' -Action { Find-ManagedDeviceMatchByRecordId -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
-    }
-    Write-UiLog -TextBox $LogTextBox -Message "Intune managed device matches: $($managedMatches.Count)"
-    foreach ($entry in $managedMatches) {
-        [void]$script:SearchResults.Add($entry)
-    }
 
-    Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Windows Autopilot..."
-    [object[]]$autopilotMatches = @()
-    $autopilotServiceUnavailable = $false
-
-    try {
-        [object[]]$autopilotMatches = @(Find-AutopilotMatch -SearchTerm $SearchTerm)
-    }
-    catch {
-        if (Test-IsGraphInternalServerError -ErrorRecord $_) {
-            $autopilotServiceUnavailable = $true
-            Write-UiLog -TextBox $LogTextBox -Message 'Windows Autopilot search is temporarily unavailable because Microsoft Graph returned InternalServerError. Continuing without Autopilot results.'
+    if ('Intune' -in $Sources) {
+        Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Intune managed devices..."
+        [object[]]$managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device search' -Action { Find-ManagedDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        if (-not $managedMatches.Count) {
+            Write-UiLog -TextBox $LogTextBox -Message 'No exact Intune match from Graph. Running a local fallback scan; partial matches will be marked and excluded from Remove All.'
+            [object[]]$managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device fallback search' -Action { Find-ManagedDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
         }
-        else {
-            Write-UiErrorDetail -TextBox $LogTextBox -Prefix 'Windows Autopilot search failed:' -ErrorRecord $_
+        if (-not $managedMatches.Count) {
+            Write-UiLog -TextBox $LogTextBox -Message 'No Intune match from name or serial. Trying direct managedDeviceId lookup from the search text...'
+            [object[]]$managedMatches = @(Invoke-SearchBlock -Label 'Intune managed device ID lookup' -Action { Find-ManagedDeviceMatchByRecordId -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        }
+        Write-UiLog -TextBox $LogTextBox -Message "Intune managed device matches: $($managedMatches.Count)"
+        foreach ($entry in $managedMatches) {
+            [void]$script:SearchResults.Add($entry)
         }
     }
 
-    if (-not $autopilotMatches.Count -and -not $autopilotServiceUnavailable) {
-        Write-UiLog -TextBox $LogTextBox -Message 'No Autopilot match from direct Graph filter. Running local fallback scan...'
+    if ('Autopilot' -in $Sources) {
+        Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Windows Autopilot..."
+        [object[]]$autopilotMatches = @()
+        $autopilotServiceUnavailable = $false
+
         try {
-            [object[]]$autopilotMatches = @(Find-AutopilotMatchFallback -SearchTerm $SearchTerm)
+            [object[]]$autopilotMatches = @(Find-AutopilotMatch -SearchTerm $SearchTerm)
         }
         catch {
             if (Test-IsGraphInternalServerError -ErrorRecord $_) {
-                Write-UiLog -TextBox $LogTextBox -Message 'Windows Autopilot fallback scan is temporarily unavailable because Microsoft Graph returned InternalServerError. Continuing without Autopilot results.'
+                $autopilotServiceUnavailable = $true
+                Write-UiLog -TextBox $LogTextBox -Message 'Windows Autopilot search is temporarily unavailable because Microsoft Graph returned InternalServerError. Continuing without Autopilot results.'
             }
             else {
-                Write-UiErrorDetail -TextBox $LogTextBox -Prefix 'Windows Autopilot fallback search failed:' -ErrorRecord $_
+                Write-UiErrorDetail -TextBox $LogTextBox -Prefix 'Windows Autopilot search failed:' -ErrorRecord $_
             }
         }
-    }
-    Write-UiLog -TextBox $LogTextBox -Message "Windows Autopilot matches: $($autopilotMatches.Count)"
-    foreach ($entry in $autopilotMatches) {
-        [void]$script:SearchResults.Add($entry)
+
+        if (-not $autopilotMatches.Count -and -not $autopilotServiceUnavailable) {
+            Write-UiLog -TextBox $LogTextBox -Message 'No exact Autopilot match from Graph. Running a local fallback scan; partial matches will be marked and excluded from Remove All.'
+            try {
+                [object[]]$autopilotMatches = @(Find-AutopilotMatchFallback -SearchTerm $SearchTerm)
+            }
+            catch {
+                if (Test-IsGraphInternalServerError -ErrorRecord $_) {
+                    Write-UiLog -TextBox $LogTextBox -Message 'Windows Autopilot fallback scan is temporarily unavailable because Microsoft Graph returned InternalServerError. Continuing without Autopilot results.'
+                }
+                else {
+                    Write-UiErrorDetail -TextBox $LogTextBox -Prefix 'Windows Autopilot fallback search failed:' -ErrorRecord $_
+                }
+            }
+        }
+        Write-UiLog -TextBox $LogTextBox -Message "Windows Autopilot matches: $($autopilotMatches.Count)"
+        foreach ($entry in $autopilotMatches) {
+            [void]$script:SearchResults.Add($entry)
+        }
     }
 
-    Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Entra ID devices..."
-    [object[]]$entraMatches = @(Invoke-SearchBlock -Label 'Entra ID search' -Action { Find-EntraDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
-    if (-not $entraMatches.Count) {
-        Write-UiLog -TextBox $LogTextBox -Message 'No Entra direct match from Graph filter. Running local fallback scan...'
-        [object[]]$entraMatches = @(Invoke-SearchBlock -Label 'Entra ID fallback search' -Action { Find-EntraDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
-    }
-    Write-UiLog -TextBox $LogTextBox -Message "Entra ID direct matches: $($entraMatches.Count)"
-    foreach ($entry in $entraMatches) {
-        [void]$script:SearchResults.Add($entry)
+    if ('Entra' -in $Sources) {
+        Write-UiLog -TextBox $LogTextBox -Message "Searching for '$SearchTerm' in Entra ID devices..."
+        [object[]]$entraMatches = @(Invoke-SearchBlock -Label 'Entra ID search' -Action { Find-EntraDeviceMatch -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        if (-not $entraMatches.Count) {
+            Write-UiLog -TextBox $LogTextBox -Message 'No exact Entra match from Graph. Running a local fallback scan; partial matches will be marked and excluded from Remove All.'
+            [object[]]$entraMatches = @(Invoke-SearchBlock -Label 'Entra ID fallback search' -Action { Find-EntraDeviceMatchFallback -SearchTerm $SearchTerm } -LogTextBox $LogTextBox)
+        }
+        Write-UiLog -TextBox $LogTextBox -Message "Entra ID matches: $($entraMatches.Count)"
+        foreach ($entry in $entraMatches) {
+            [void]$script:SearchResults.Add($entry)
+        }
     }
 
     $linkedAzureDeviceIds = $script:SearchResults |
         Where-Object { $_.AzureDeviceId } |
         Select-Object -ExpandProperty AzureDeviceId -Unique
 
-    if ($linkedAzureDeviceIds) {
+    if ('Entra' -in $Sources -and $linkedAzureDeviceIds) {
         Write-UiLog -TextBox $LogTextBox -Message 'Resolving linked Entra ID devices from Intune and Autopilot records...'
         [object[]]$linkedEntraMatches = @(Invoke-SearchBlock -Label 'Linked Entra ID resolution' -Action { Find-EntraDeviceMatchByAzureDeviceId -AzureDeviceIds $linkedAzureDeviceIds } -LogTextBox $LogTextBox)
         Write-UiLog -TextBox $LogTextBox -Message "Entra ID linked matches: $($linkedEntraMatches.Count)"
@@ -1023,8 +1247,34 @@ function Search-DeviceEverywhere {
         [void]$script:SearchResults.Add($entry)
     }
 
+    $partialCount = @($script:SearchResults | Where-Object { $_.MatchType -eq 'Partial' }).Count
+    if ($partialCount -gt 0) {
+        Write-UiLog -TextBox $LogTextBox -Message "$partialCount partial match(es) found. They require explicit row selection and are excluded from Remove All."
+    }
+
     Write-UiLog -TextBox $LogTextBox -Message "Search completed. Found $($script:SearchResults.Count) matching record(s)."
     return $script:SearchResults
+}
+
+function Sort-RemovalPlan {
+    param(
+        [AllowNull()]
+        [object]$Records
+    )
+
+    $items = ConvertTo-ObjectArray -InputObject $Records
+    $ordered = $items | Sort-Object `
+        @{ Expression = {
+            switch ($_.Source) {
+                'Intune Managed Device' { 10 }
+                'Windows Autopilot' { 20 }
+                'Entra ID Device' { 30 }
+                default { 40 }
+            }
+        } }, `
+        Source, RecordId
+
+    return $ordered
 }
 
 function Resolve-RemovalPlan {
@@ -1036,17 +1286,27 @@ function Resolve-RemovalPlan {
         [System.Collections.Generic.List[object]]$AllRecords,
 
         [Parameter(Mandatory)]
-        [bool]$ExpandLinked
+        [bool]$ExpandLinked,
+
+        [bool]$IncludePartial = $true
     )
 
+    $eligibleSeeds = @($SeedRecords | Where-Object {
+        $_ -and ($IncludePartial -or -not $_.PSObject.Properties['MatchType'] -or $_.MatchType -ne 'Partial')
+    })
+
     if ($ExpandLinked) {
-        return ConvertTo-ObjectArray -InputObject (Get-LinkedRecord -SeedRecords $SeedRecords -AllRecords $AllRecords)
+        $expanded = Get-LinkedRecord -SeedRecords $eligibleSeeds -AllRecords $AllRecords
+        if (-not $IncludePartial) {
+            $expanded = @($expanded | Where-Object { -not $_.PSObject.Properties['MatchType'] -or $_.MatchType -ne 'Partial' })
+        }
+        return Sort-RemovalPlan -Records $expanded
     }
 
     $unique = New-Object System.Collections.Generic.List[object]
     $seenRecordIds = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
 
-    foreach ($record in $SeedRecords) {
+    foreach ($record in $eligibleSeeds) {
         if (-not $record) {
             continue
         }
@@ -1057,7 +1317,7 @@ function Resolve-RemovalPlan {
         }
     }
 
-    return $unique
+    return Sort-RemovalPlan -Records $unique
 }
 
 function Get-LinkedRecord {
@@ -1139,7 +1399,7 @@ function Invoke-AutopilotAssignmentLinkRemoval {
             return
         }
 
-        Invoke-MgGraphRequest -Method DELETE -Uri $assignmentUri | Out-Null
+        Invoke-DeviceCleanupGraphRequest -Method DELETE -Uri $assignmentUri | Out-Null
         Write-UiLog -TextBox $LogTextBox -Message "Removed Autopilot deployment assignment for $($Record.DisplayName)."
     }
     catch {
@@ -1168,7 +1428,7 @@ function Invoke-DeviceRecordRemoval {
     }
 
     try {
-        Invoke-MgGraphRequest -Method DELETE -Uri $Record.DeleteUri | Out-Null
+        Invoke-DeviceCleanupGraphRequest -Method DELETE -Uri $Record.DeleteUri | Out-Null
     }
     catch {
         if ($_.Exception.Message -match '404|NotFound') {
@@ -1180,7 +1440,8 @@ function Invoke-DeviceRecordRemoval {
     }
 
     if (-not (Confirm-GraphDeletion -Uri $Record.DeleteUri)) {
-        throw "Delete request completed for $($Record.Source): $($Record.DisplayName), but follow-up verification still found the record."
+        Write-UiLog -TextBox $LogTextBox -Message "Delete accepted for $($Record.Source): $($Record.DisplayName), but the record is still visible. Marked Pending for later verification."
+        return 'Pending'
     }
 
     Write-UiLog -TextBox $LogTextBox -Message "Deleted $($Record.Source): $($Record.DisplayName) (verified)"
@@ -1222,40 +1483,49 @@ function Sync-GridData {
     $Grid.Rows.Clear()
     $Grid.Columns.Clear()
 
-    [void]$Grid.Columns.Add('Source', 'Source')
-    [void]$Grid.Columns.Add('DisplayName', 'DisplayName')
-    [void]$Grid.Columns.Add('SerialNumber', 'SerialNumber')
-    [void]$Grid.Columns.Add('PrimaryUser', 'PrimaryUser')
-    [void]$Grid.Columns.Add('OperatingSystem', 'OperatingSystem')
-    [void]$Grid.Columns.Add('RecordId', 'RecordId')
-    [void]$Grid.Columns.Add('AzureDeviceId', 'AzureDeviceId')
-    [void]$Grid.Columns.Add('DeleteUri', 'DeleteUri')
-    [void]$Grid.Columns.Add('Details', 'Details')
+    $columnDefinitions = @(
+        @('MatchType', 'Match')
+        @('InputTerm', 'Input term')
+        @('Source', 'Source')
+        @('DisplayName', 'Display name')
+        @('SerialNumber', 'Serial number')
+        @('OperatingSystem', 'OS')
+        @('LastActivity', 'Last activity')
+        @('ExpectedAction', 'Expected action')
+        @('ResultStatus', 'Status')
+        @('PrimaryUser', 'Primary user')
+        @('EnrollmentType', 'Enrollment')
+        @('Ownership', 'Ownership')
+        @('RecordId', 'Record ID')
+        @('AzureDeviceId', 'Azure device ID')
+        @('DeleteUri', 'Delete URI')
+        @('Details', 'Details')
+    )
+
+    foreach ($columnDefinition in $columnDefinitions) {
+        [void]$Grid.Columns.Add([string]$columnDefinition[0], [string]$columnDefinition[1])
+    }
 
     $rowsToAdd = New-Object 'System.Collections.Generic.List[System.Windows.Forms.DataGridViewRow]'
 
     foreach ($item in $recordItems) {
-        $sourceProperty = if ($item) { $item.PSObject.Properties['Source'] } else { $null }
-        $displayNameProperty = if ($item) { $item.PSObject.Properties['DisplayName'] } else { $null }
-        $serialNumberProperty = if ($item) { $item.PSObject.Properties['SerialNumber'] } else { $null }
-        $primaryUserProperty = if ($item) { $item.PSObject.Properties['PrimaryUser'] } else { $null }
-        $operatingSystemProperty = if ($item) { $item.PSObject.Properties['OperatingSystem'] } else { $null }
-        $recordIdProperty = if ($item) { $item.PSObject.Properties['RecordId'] } else { $null }
-        $azureDeviceIdProperty = if ($item) { $item.PSObject.Properties['AzureDeviceId'] } else { $null }
-        $deleteUriProperty = if ($item) { $item.PSObject.Properties['DeleteUri'] } else { $null }
-        $detailsProperty = if ($item) { $item.PSObject.Properties['Details'] } else { $null }
-
         $row = New-Object System.Windows.Forms.DataGridViewRow
         $row.CreateCells($Grid)
-        $row.Cells[0].Value = if ($sourceProperty) { [string]$sourceProperty.Value } else { '' }
-        $row.Cells[1].Value = if ($displayNameProperty) { [string]$displayNameProperty.Value } else { '' }
-        $row.Cells[2].Value = if ($serialNumberProperty) { [string]$serialNumberProperty.Value } else { '' }
-        $row.Cells[3].Value = if ($primaryUserProperty) { [string]$primaryUserProperty.Value } else { '' }
-        $row.Cells[4].Value = if ($operatingSystemProperty) { [string]$operatingSystemProperty.Value } else { '' }
-        $row.Cells[5].Value = if ($recordIdProperty) { [string]$recordIdProperty.Value } else { '' }
-        $row.Cells[6].Value = if ($azureDeviceIdProperty) { [string]$azureDeviceIdProperty.Value } else { '' }
-        $row.Cells[7].Value = if ($deleteUriProperty) { [string]$deleteUriProperty.Value } else { '' }
-        $row.Cells[8].Value = if ($detailsProperty) { [string]$detailsProperty.Value } else { '' }
+        for ($columnIndex = 0; $columnIndex -lt $columnDefinitions.Count; $columnIndex++) {
+            $propertyName = [string]$columnDefinitions[$columnIndex][0]
+            $property = if ($item) { $item.PSObject.Properties[$propertyName] } else { $null }
+            $row.Cells[$columnIndex].Value = if ($property -and $null -ne $property.Value) { [string]$property.Value } else { '' }
+        }
+
+        if ($item -and $item.MatchType -eq 'Partial') {
+            $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(255, 248, 220)
+        }
+        elseif ($item -and $item.ResultStatus -eq 'Failed') {
+            $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(255, 230, 230)
+        }
+        elseif ($item -and $item.ResultStatus -eq 'Pending') {
+            $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(255, 244, 204)
+        }
         $row.Tag = $item
         [void]$rowsToAdd.Add($row)
     }
@@ -1276,7 +1546,7 @@ function Sync-GridData {
     }
 
     if ($Grid.Columns['DisplayName']) {
-        $Grid.Columns['DisplayName'].Width = 170
+        $Grid.Columns['DisplayName'].Width = 165
     }
 
     if ($Grid.Columns['Details']) {
@@ -1285,6 +1555,14 @@ function Sync-GridData {
 
     if ($Grid.Columns['Source']) {
         $Grid.Columns['Source'].Width = 150
+    }
+
+    if ($Grid.Columns['ExpectedAction']) {
+        $Grid.Columns['ExpectedAction'].Width = 210
+    }
+
+    if ($Grid.Columns['LastActivity']) {
+        $Grid.Columns['LastActivity'].Width = 165
     }
 
     if ($Grid.Columns['SerialNumber']) {
@@ -1370,35 +1648,64 @@ function Invoke-RemovalPlan {
 
     $deletedCount = 0
     $failedCount = 0
+    $pendingCount = 0
+    $skippedCount = 0
+    $outcomes = New-Object System.Collections.Generic.List[object]
+    $successfulRecordKeys = New-Object System.Collections.Generic.List[string]
 
-    foreach ($record in $Records) {
+    foreach ($record in (Sort-RemovalPlan -Records $Records)) {
         try {
             $removalState = Invoke-DeviceRecordRemoval -Record $record -LogTextBox $LogTextBox
-            [void]$script:SearchResults.Remove($record)
-            if ($removalState -eq 'AlreadyAbsent') {
-                Write-AuditEntry -Record $record -Outcome 'Deleted' -Message 'Record was already absent when delete was attempted.'
+            $record.ResultStatus = $removalState
+
+            if ($removalState -in @('Deleted', 'AlreadyAbsent')) {
+                [void]$script:SearchResults.Remove($record)
+                [void]$successfulRecordKeys.Add("$($record.Source)|$($record.RecordId)")
+                if ($removalState -eq 'AlreadyAbsent') {
+                    Write-AuditEntry -Record $record -Outcome 'AlreadyAbsent' -Message 'Record was already absent when delete was attempted.'
+                }
+                else {
+                    Write-AuditEntry -Record $record -Outcome 'Deleted' -Message 'Record deleted successfully and verified absent.'
+                }
+                $deletedCount++
+            }
+            elseif ($removalState -eq 'Pending') {
+                Write-AuditEntry -Record $record -Outcome 'Pending' -Message 'Delete was accepted but the record was still visible during verification.'
+                $pendingCount++
             }
             else {
-                Write-AuditEntry -Record $record -Outcome 'Deleted' -Message 'Record deleted successfully and verified absent.'
+                Write-AuditEntry -Record $record -Outcome 'Skipped' -Message 'Removal was skipped before a delete request was sent.'
+                $skippedCount++
             }
-            $deletedCount++
+
+            [void]$outcomes.Add([PSCustomObject]@{ Record = $record; Outcome = $removalState })
         }
         catch {
             $message = Get-ExceptionSummary -ErrorRecord $_
+            $record.ResultStatus = 'Failed'
             Write-UiErrorDetail -TextBox $LogTextBox -Prefix "Deletion failed for $($record.Source): $($record.DisplayName):" -ErrorRecord $_
             Write-AuditEntry -Record $record -Outcome 'Failed' -Message $message
             $failedCount++
+            [void]$outcomes.Add([PSCustomObject]@{ Record = $record; Outcome = 'Failed' })
         }
     }
 
     return [PSCustomObject]@{
-        DeletedCount = $deletedCount
-        FailedCount  = $failedCount
+        DeletedCount        = $deletedCount
+        FailedCount         = $failedCount
+        PendingCount        = $pendingCount
+        SkippedCount        = $skippedCount
+        SuccessfulRecordKeys = $successfulRecordKeys.ToArray()
+        Outcomes            = $outcomes.ToArray()
     }
 }
 
+if ($NoGui) {
+    return
+}
+
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'Remove Device Everywhere'
+$form.Text = "Remove Device Everywhere v$script:AppVersion"
 $form.Size = New-Object System.Drawing.Size(1260, 820)
 $form.MinimumSize = New-Object System.Drawing.Size(900, 600)
 $form.StartPosition = 'CenterScreen'
@@ -1482,7 +1789,7 @@ $formLayout.Controls.Add($titlePanel, 0, 1)
 $titleLabel = New-Object System.Windows.Forms.Label
 $titleLabel.Dock = 'Fill'
 $titleLabel.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 15)
-$titleLabel.Text = 'Remove Device Everywhere  |  Intune | Entra ID | Autopilot'
+$titleLabel.Text = "Remove Device Everywhere v$script:AppVersion  |  Safe Cleanup"
 $titleLabel.TextAlign = 'MiddleLeft'
 $titleLabel.Padding = New-Object System.Windows.Forms.Padding(12, 0, 0, 0)
 $titlePanel.Controls.Add($titleLabel)
@@ -1585,14 +1892,14 @@ $searchPanel.Controls.Add($selectAllButton)
 
 $removeAllButton = New-Object System.Windows.Forms.Button
 $removeAllButton.Size = New-Object System.Drawing.Size(130, 30)
-$removeAllButton.Text = 'Remove All Found'
+$removeAllButton.Text = 'Remove Exact Found'
 $removeAllButton.Enabled = $false
 $removeAllButton.Anchor = 'Right,Top'
 $searchPanel.Controls.Add($removeAllButton)
 
 $removeButton = New-Object System.Windows.Forms.Button
 $removeButton.Size = New-Object System.Drawing.Size(150, 30)
-$removeButton.Text = 'Remove Everywhere'
+$removeButton.Text = 'Remove Selected'
 $removeButton.Enabled = $false
 $removeButton.Anchor = 'Right,Top'
 $searchPanel.Controls.Add($removeButton)
@@ -1624,13 +1931,37 @@ $positionTab1Controls = {
 $searchPanel.Add_Resize($positionTab1Controls)
 $searchPanel.Add_Layout($positionTab1Controls)
 
-# Row 1: checkbox
+# Row 1: source and safety options
+$singleOptionsPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+$singleOptionsPanel.Dock = 'Fill'
+$singleOptionsPanel.WrapContents = $false
+$singleOptionsPanel.Margin = New-Object System.Windows.Forms.Padding(0)
+$tab1Layout.Controls.Add($singleOptionsPanel, 0, 1)
+
+$intuneSourceCheckBox = New-Object System.Windows.Forms.CheckBox
+$intuneSourceCheckBox.Text = 'Intune'
+$intuneSourceCheckBox.Checked = $true
+$intuneSourceCheckBox.AutoSize = $true
+$singleOptionsPanel.Controls.Add($intuneSourceCheckBox)
+
+$autopilotSourceCheckBox = New-Object System.Windows.Forms.CheckBox
+$autopilotSourceCheckBox.Text = 'Autopilot'
+$autopilotSourceCheckBox.Checked = $true
+$autopilotSourceCheckBox.AutoSize = $true
+$singleOptionsPanel.Controls.Add($autopilotSourceCheckBox)
+
+$entraSourceCheckBox = New-Object System.Windows.Forms.CheckBox
+$entraSourceCheckBox.Text = 'Entra ID'
+$entraSourceCheckBox.Checked = $true
+$entraSourceCheckBox.AutoSize = $true
+$singleOptionsPanel.Controls.Add($entraSourceCheckBox)
+
 $linkedCleanupCheckBox = New-Object System.Windows.Forms.CheckBox
-$linkedCleanupCheckBox.Text = 'Also remove linked records with the same serial or Azure device ID'
-$linkedCleanupCheckBox.Checked = $true
-$linkedCleanupCheckBox.Dock = 'Fill'
-$linkedCleanupCheckBox.Margin = New-Object System.Windows.Forms.Padding(0)
-$tab1Layout.Controls.Add($linkedCleanupCheckBox, 0, 1)
+$linkedCleanupCheckBox.Text = 'Expand selected rows to linked serial/Azure device ID records'
+$linkedCleanupCheckBox.Checked = $false
+$linkedCleanupCheckBox.AutoSize = $true
+$linkedCleanupCheckBox.Margin = New-Object System.Windows.Forms.Padding(18, 3, 0, 0)
+$singleOptionsPanel.Controls.Add($linkedCleanupCheckBox)
 
 # Row 2: results grid (48% of variable height)
 $grid = New-Object System.Windows.Forms.DataGridView
@@ -1703,7 +2034,7 @@ $tab2Layout.Dock = 'Fill'
 $tab2Layout.ColumnCount = 1
 $tab2Layout.RowCount = 5
 [void]$tab2Layout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100)))
-[void]$tab2Layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 178)))  # input area
+[void]$tab2Layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 220)))  # input area
 [void]$tab2Layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 22)))   # results label
 [void]$tab2Layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 60)))    # bulk grid
 [void]$tab2Layout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 22)))   # log label
@@ -1752,13 +2083,14 @@ $bulkInputContentLayout.Controls.Add($bulkInputTextBox, 0, 0)
 $bulkRightLayout = New-Object System.Windows.Forms.TableLayoutPanel
 $bulkRightLayout.Dock = 'Fill'
 $bulkRightLayout.ColumnCount = 2
-$bulkRightLayout.RowCount = 5
+$bulkRightLayout.RowCount = 6
 [void]$bulkRightLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 160)))
 [void]$bulkRightLayout.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 160)))
 [void]$bulkRightLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 34)))
 [void]$bulkRightLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 34)))
 [void]$bulkRightLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 34)))
-[void]$bulkRightLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 26)))
+[void]$bulkRightLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 34)))
+[void]$bulkRightLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 30)))
 [void]$bulkRightLayout.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100)))
 $bulkRightLayout.Margin = New-Object System.Windows.Forms.Padding(0)
 $bulkInputContentLayout.Controls.Add($bulkRightLayout, 1, 0)
@@ -1778,37 +2110,76 @@ $bulkRightLayout.Controls.Add($bulkLoadFileButton, 1, 0)
 
 $bulkRemoveAllButton = New-Object System.Windows.Forms.Button
 $bulkRemoveAllButton.Dock = 'Fill'
-$bulkRemoveAllButton.Text = 'Remove All Found'
+$bulkRemoveAllButton.Text = 'Remove Exact Found'
 $bulkRemoveAllButton.Enabled = $false
-$bulkRemoveAllButton.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 4)
-$bulkRightLayout.Controls.Add($bulkRemoveAllButton, 0, 1)
+$bulkRemoveAllButton.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 4)
+$bulkRightLayout.Controls.Add($bulkRemoveAllButton, 1, 1)
+
+$bulkRemoveSelectedButton = New-Object System.Windows.Forms.Button
+$bulkRemoveSelectedButton.Dock = 'Fill'
+$bulkRemoveSelectedButton.Text = 'Remove Selected'
+$bulkRemoveSelectedButton.Enabled = $false
+$bulkRemoveSelectedButton.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 4)
+$bulkRightLayout.Controls.Add($bulkRemoveSelectedButton, 0, 1)
 
 $bulkCsvColumnLabel = New-Object System.Windows.Forms.Label
 $bulkCsvColumnLabel.Text = 'CSV column name:'
 $bulkCsvColumnLabel.Dock = 'Fill'
 $bulkCsvColumnLabel.TextAlign = 'BottomLeft'
 $bulkCsvColumnLabel.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 0)
-$bulkRightLayout.Controls.Add($bulkCsvColumnLabel, 1, 1)
+$bulkRightLayout.Controls.Add($bulkCsvColumnLabel, 0, 3)
 
 $bulkClearButton = New-Object System.Windows.Forms.Button
 $bulkClearButton.Dock = 'Fill'
 $bulkClearButton.Text = 'Clear'
-$bulkClearButton.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 4)
-$bulkRightLayout.Controls.Add($bulkClearButton, 0, 2)
+$bulkClearButton.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 4)
+$bulkRightLayout.Controls.Add($bulkClearButton, 1, 2)
+
+$bulkExportPlanButton = New-Object System.Windows.Forms.Button
+$bulkExportPlanButton.Dock = 'Fill'
+$bulkExportPlanButton.Text = 'Export Dry Run...'
+$bulkExportPlanButton.Enabled = $false
+$bulkExportPlanButton.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 4)
+$bulkRightLayout.Controls.Add($bulkExportPlanButton, 0, 2)
 
 $bulkCsvColumnTextBox = New-Object System.Windows.Forms.TextBox
 $bulkCsvColumnTextBox.Dock = 'Fill'
 $bulkCsvColumnTextBox.Text = 'DeviceName'
 $bulkCsvColumnTextBox.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 4)
-$bulkRightLayout.Controls.Add($bulkCsvColumnTextBox, 1, 2)
+$bulkRightLayout.Controls.Add($bulkCsvColumnTextBox, 1, 3)
+
+$bulkSourceOptionsPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+$bulkSourceOptionsPanel.Dock = 'Fill'
+$bulkSourceOptionsPanel.WrapContents = $false
+$bulkSourceOptionsPanel.Margin = New-Object System.Windows.Forms.Padding(0)
+$bulkRightLayout.SetColumnSpan($bulkSourceOptionsPanel, 2)
+$bulkRightLayout.Controls.Add($bulkSourceOptionsPanel, 0, 4)
+
+$bulkIntuneSourceCheckBox = New-Object System.Windows.Forms.CheckBox
+$bulkIntuneSourceCheckBox.Text = 'Intune'
+$bulkIntuneSourceCheckBox.Checked = $true
+$bulkIntuneSourceCheckBox.AutoSize = $true
+$bulkSourceOptionsPanel.Controls.Add($bulkIntuneSourceCheckBox)
+
+$bulkAutopilotSourceCheckBox = New-Object System.Windows.Forms.CheckBox
+$bulkAutopilotSourceCheckBox.Text = 'Autopilot'
+$bulkAutopilotSourceCheckBox.Checked = $true
+$bulkAutopilotSourceCheckBox.AutoSize = $true
+$bulkSourceOptionsPanel.Controls.Add($bulkAutopilotSourceCheckBox)
+
+$bulkEntraSourceCheckBox = New-Object System.Windows.Forms.CheckBox
+$bulkEntraSourceCheckBox.Text = 'Entra ID'
+$bulkEntraSourceCheckBox.Checked = $true
+$bulkEntraSourceCheckBox.AutoSize = $true
+$bulkSourceOptionsPanel.Controls.Add($bulkEntraSourceCheckBox)
 
 $bulkLinkedCleanupCheckBox = New-Object System.Windows.Forms.CheckBox
-$bulkLinkedCleanupCheckBox.Checked = $true
-$bulkLinkedCleanupCheckBox.Text = 'Also remove linked records'
+$bulkLinkedCleanupCheckBox.Checked = $false
+$bulkLinkedCleanupCheckBox.Text = 'Expand selected rows to linked records'
 $bulkLinkedCleanupCheckBox.Dock = 'Fill'
 $bulkLinkedCleanupCheckBox.Margin = New-Object System.Windows.Forms.Padding(0)
 $bulkRightLayout.SetColumnSpan($bulkLinkedCleanupCheckBox, 2)
-$bulkRightLayout.Controls.Add($bulkLinkedCleanupCheckBox, 0, 3)
+$bulkRightLayout.Controls.Add($bulkLinkedCleanupCheckBox, 0, 5)
 
 # Row 1: results label
 $bulkResultsLabel = New-Object System.Windows.Forms.Label
@@ -1861,10 +2232,10 @@ $connectButton.Add_Click({
         $statusLabel.Text = 'Status: Connecting to Microsoft Graph...'
         Write-UiLog -TextBox $logTextBox -Message 'Connecting with popup sign-in (simple mode).'
         $context = Connect-DeviceCleanupGraph -UseDeviceCode:$false -LogTextBox $logTextBox
-        $statusLabel.Text = "Status: Connected as $($context.Account)"
+        $statusLabel.Text = "Status: Connected as $($context.Account) | Tenant $($context.TenantId)"
         $searchButton.Enabled = $true
         $bulkSearchButton.Enabled = $true
-        Write-UiLog -TextBox $logTextBox -Message "Connected to Microsoft Graph as $($context.Account)."
+        Write-UiLog -TextBox $logTextBox -Message "Connected to Microsoft Graph as $($context.Account) in tenant $($context.TenantId)."
         Write-UiLog -TextBox $logTextBox -Message "Granted scopes: $($context.Scopes -join ', ')"
     }
     catch {
@@ -1886,9 +2257,18 @@ $searchButton.Add_Click({
             return
         }
 
+        $sources = New-Object System.Collections.Generic.List[string]
+        if ($intuneSourceCheckBox.Checked) { [void]$sources.Add('Intune') }
+        if ($autopilotSourceCheckBox.Checked) { [void]$sources.Add('Autopilot') }
+        if ($entraSourceCheckBox.Checked) { [void]$sources.Add('Entra') }
+        if (-not $sources.Count) {
+            [System.Windows.Forms.MessageBox]::Show('Select at least one source: Intune, Autopilot, or Entra ID.', 'No Source Selected', 'OK', 'Warning') | Out-Null
+            return
+        }
+
         $form.UseWaitCursor = $true
         $statusLabel.Text = "Status: Searching for $term"
-        Search-DeviceEverywhere -SearchTerm $term -LogTextBox $logTextBox | Out-Null
+        Search-DeviceEverywhere -SearchTerm $term -LogTextBox $logTextBox -Sources $sources.ToArray() | Out-Null
         Sync-GridData -Grid $grid
         Sync-GridData -Grid $previewGrid -Records $null
         $previewLabel.Text = 'Removal Preview: Select one or more results to see exactly what will be deleted'
@@ -1945,9 +2325,13 @@ $removeButton.Add_Click({
         Sync-PreviewData -SourceGrid $grid -PreviewGrid $previewGrid -PreviewLabel $previewLabel -ExpandLinked $linkedCleanupCheckBox.Checked
         Write-UiLog -TextBox $logTextBox -Message "Prepared deletion plan for $($selected.Count) record(s)."
 
-        $summary = ($selected | ForEach-Object { "$($_.Source): $($_.DisplayName)" }) -join [Environment]::NewLine
+        $summary = ($selected | ForEach-Object { "$($_.Source): $($_.DisplayName) [$($_.MatchType)] -> $($_.ExpectedAction)" }) -join [Environment]::NewLine
+        $entraWarning = if (@($selected | Where-Object { $_.Source -eq 'Entra ID Device' }).Count -gt 0) {
+            "`r`n`r`nWARNING: This plan deletes one or more Entra device identities. For Autopilot deregistration, Microsoft recommends that Entra identities are not deleted by default."
+        }
+        else { '' }
         $confirmation = [System.Windows.Forms.MessageBox]::Show(
-            "This will permanently delete $($selected.Count) record(s):`r`n`r`n$summary`r`n`r`nContinue?",
+            "Safe cleanup order: Intune -> Autopilot -> Entra ID.`r`n`r`nThis will process $($selected.Count) record(s):`r`n`r`n$summary$entraWarning`r`n`r`nContinue?",
             'Confirm Removal',
             [System.Windows.Forms.MessageBoxButtons]::YesNo,
             [System.Windows.Forms.MessageBoxIcon]::Warning
@@ -1965,8 +2349,8 @@ $removeButton.Add_Click({
         $removeButton.Enabled = $script:SearchResults.Count -gt 0
         $removeAllButton.Enabled = $script:SearchResults.Count -gt 0
         $selectAllButton.Enabled = $script:SearchResults.Count -gt 0
-        $statusLabel.Text = "Status: Removed $($result.DeletedCount) record(s), failed $($result.FailedCount)"
-        [System.Windows.Forms.MessageBox]::Show("Removal completed.`r`n`r`nDeleted: $($result.DeletedCount)`r`nFailed: $($result.FailedCount)", 'Removal Completed', 'OK', 'Information') | Out-Null
+        $statusLabel.Text = "Status: Deleted $($result.DeletedCount), pending $($result.PendingCount), failed $($result.FailedCount)"
+        [System.Windows.Forms.MessageBox]::Show("Removal completed.`r`n`r`nDeleted: $($result.DeletedCount)`r`nPending verification: $($result.PendingCount)`r`nFailed: $($result.FailedCount)`r`nSkipped: $($result.SkippedCount)", 'Removal Completed', 'OK', 'Information') | Out-Null
         $searchTextBox.Clear()
     }
     catch {
@@ -1988,7 +2372,7 @@ $removeAllButton.Add_Click({
             [void]$seedRecords.Add($record)
         }
 
-        $allRecordsRaw = Resolve-RemovalPlan -SeedRecords $seedRecords.ToArray() -AllRecords $script:SearchResults -ExpandLinked:$false
+        $allRecordsRaw = Resolve-RemovalPlan -SeedRecords $seedRecords.ToArray() -AllRecords $script:SearchResults -ExpandLinked:$false -IncludePartial:$false
         $allRecords = New-Object System.Collections.Generic.List[object]
         if ($null -ne $allRecordsRaw) {
             if ($allRecordsRaw -is [string] -or $allRecordsRaw -isnot [System.Collections.IEnumerable]) {
@@ -2002,7 +2386,7 @@ $removeAllButton.Add_Click({
         }
 
         if (-not $allRecords.Count) {
-            [System.Windows.Forms.MessageBox]::Show('There are no search results to remove.', 'Nothing Found', 'OK', 'Information') | Out-Null
+            [System.Windows.Forms.MessageBox]::Show('There are no exact search results to remove. Partial matches require explicit row selection.', 'No Exact Matches', 'OK', 'Information') | Out-Null
             return
         }
 
@@ -2010,8 +2394,12 @@ $removeAllButton.Add_Click({
         $previewLabel.Text = "Removal Preview: $($allRecords.Count) found record(s) will be deleted"
         Write-UiLog -TextBox $logTextBox -Message "Prepared deletion plan for all $($allRecords.Count) found record(s)."
 
+        $entraWarning = if (@($allRecords | Where-Object { $_.Source -eq 'Entra ID Device' }).Count -gt 0) {
+            "`r`n`r`nWARNING: This plan deletes one or more Entra device identities."
+        }
+        else { '' }
         $confirmation = [System.Windows.Forms.MessageBox]::Show(
-            "This will permanently delete all $($allRecords.Count) found record(s). Continue?",
+            "Safe cleanup order: Intune -> Autopilot -> Entra ID.`r`n`r`nThis will process all $($allRecords.Count) exact/linked record(s). Partial matches are excluded.$entraWarning`r`n`r`nContinue?",
             'Confirm Remove All',
             [System.Windows.Forms.MessageBoxButtons]::YesNo,
             [System.Windows.Forms.MessageBoxIcon]::Warning
@@ -2029,8 +2417,8 @@ $removeAllButton.Add_Click({
         $removeButton.Enabled = $script:SearchResults.Count -gt 0
         $removeAllButton.Enabled = $script:SearchResults.Count -gt 0
         $selectAllButton.Enabled = $script:SearchResults.Count -gt 0
-        $statusLabel.Text = "Status: Removed $($result.DeletedCount) record(s), failed $($result.FailedCount)"
-        [System.Windows.Forms.MessageBox]::Show("Removal completed.`r`n`r`nDeleted: $($result.DeletedCount)`r`nFailed: $($result.FailedCount)", 'Removal Completed', 'OK', 'Information') | Out-Null
+        $statusLabel.Text = "Status: Deleted $($result.DeletedCount), pending $($result.PendingCount), failed $($result.FailedCount)"
+        [System.Windows.Forms.MessageBox]::Show("Removal completed.`r`n`r`nDeleted: $($result.DeletedCount)`r`nPending verification: $($result.PendingCount)`r`nFailed: $($result.FailedCount)", 'Removal Completed', 'OK', 'Information') | Out-Null
         $searchTextBox.Clear()
     }
     catch {
@@ -2175,9 +2563,20 @@ $bulkSearchButton.Add_Click({
             return
         }
 
+        $bulkSources = New-Object System.Collections.Generic.List[string]
+        if ($bulkIntuneSourceCheckBox.Checked) { [void]$bulkSources.Add('Intune') }
+        if ($bulkAutopilotSourceCheckBox.Checked) { [void]$bulkSources.Add('Autopilot') }
+        if ($bulkEntraSourceCheckBox.Checked) { [void]$bulkSources.Add('Entra') }
+        if (-not $bulkSources.Count) {
+            [System.Windows.Forms.MessageBox]::Show('Select at least one source: Intune, Autopilot, or Entra ID.', 'No Source Selected', 'OK', 'Warning') | Out-Null
+            return
+        }
+
         $form.UseWaitCursor = $true
         $bulkSearchButton.Enabled = $false
         $bulkRemoveAllButton.Enabled = $false
+        $bulkRemoveSelectedButton.Enabled = $false
+        $bulkExportPlanButton.Enabled = $false
         $script:BulkAllResults.Clear()
         $script:BulkInputTerms.Clear()
         foreach ($t in $terms) {
@@ -2192,7 +2591,7 @@ $bulkSearchButton.Add_Click({
             Write-UiLog -TextBox $bulkLogTextBox -Message "[$($i+1)/$($terms.Count)] Searching '$term'..."
             $script:CurrentSearchTerm = $term
             $script:SearchResults.Clear()
-            Search-DeviceEverywhere -SearchTerm $term -LogTextBox $bulkLogTextBox | Out-Null
+            Search-DeviceEverywhere -SearchTerm $term -LogTextBox $bulkLogTextBox -Sources $bulkSources.ToArray() | Out-Null
 
             foreach ($r in $script:SearchResults) {
                 [void]$script:BulkAllResults.Add($r)
@@ -2208,7 +2607,10 @@ $bulkSearchButton.Add_Click({
 
         Sync-GridData -Grid $bulkGrid -Records $script:BulkAllResults
         $bulkResultsLabel.Text = "Results: Found $($script:BulkAllResults.Count) unique record(s) across $($terms.Count) search term(s)"
-        $bulkRemoveAllButton.Enabled = $script:BulkAllResults.Count -gt 0
+        $exactBulkCount = @($script:BulkAllResults | Where-Object { $_.MatchType -ne 'Partial' }).Count
+        $bulkRemoveAllButton.Enabled = $exactBulkCount -gt 0
+        $bulkRemoveSelectedButton.Enabled = $script:BulkAllResults.Count -gt 0
+        $bulkExportPlanButton.Enabled = $script:BulkAllResults.Count -gt 0
         $statusLabel.Text = "Status: Bulk search done - $($script:BulkAllResults.Count) record(s) found"
         Write-UiLog -TextBox $bulkLogTextBox -Message "Bulk search complete. $($script:BulkAllResults.Count) unique record(s) found."
     }
@@ -2223,7 +2625,9 @@ $bulkSearchButton.Add_Click({
     }
 })
 
-$bulkRemoveAllButton.Add_Click({
+$invokeBulkRemoval = {
+    param([bool]$SelectedOnly)
+
     Set-StrictMode -Off
 
     if (-not $script:BulkAllResults.Count) {
@@ -2232,11 +2636,22 @@ $bulkRemoveAllButton.Add_Click({
     }
 
     $seedRecords = New-Object System.Collections.Generic.List[object]
-    foreach ($bulkRecord in $script:BulkAllResults) {
-        [void]$seedRecords.Add($bulkRecord)
+    if ($SelectedOnly) {
+        foreach ($bulkRecord in (Get-SelectedRecord -Grid $bulkGrid)) {
+            [void]$seedRecords.Add($bulkRecord)
+        }
+        if (-not $seedRecords.Count) {
+            [System.Windows.Forms.MessageBox]::Show('Select one or more bulk result rows first.', 'Nothing Selected', 'OK', 'Warning') | Out-Null
+            return
+        }
+    }
+    else {
+        foreach ($bulkRecord in ($script:BulkAllResults | Where-Object { $_.MatchType -ne 'Partial' })) {
+            [void]$seedRecords.Add($bulkRecord)
+        }
     }
 
-    $toDeleteRaw = Resolve-RemovalPlan -SeedRecords $seedRecords.ToArray() -AllRecords $script:BulkAllResults -ExpandLinked:$bulkLinkedCleanupCheckBox.Checked
+    $toDeleteRaw = Resolve-RemovalPlan -SeedRecords $seedRecords.ToArray() -AllRecords $script:BulkAllResults -ExpandLinked:$bulkLinkedCleanupCheckBox.Checked -IncludePartial:$SelectedOnly
     $toDelete = New-Object System.Collections.Generic.List[object]
     if ($null -ne $toDeleteRaw) {
         if ($toDeleteRaw -is [string] -or $toDeleteRaw -isnot [System.Collections.IEnumerable]) {
@@ -2253,13 +2668,18 @@ $bulkRemoveAllButton.Add_Click({
         [System.Windows.Forms.MessageBox]::Show('No removable records found for the current bulk selection.', 'Nothing To Remove', 'OK', 'Information') | Out-Null
         return
     }
-    $summary = ($toDelete | Select-Object -First 20 | ForEach-Object { "$($_.Source): $($_.DisplayName)" }) -join [Environment]::NewLine
+    $summary = ($toDelete | Select-Object -First 20 | ForEach-Object { "$($_.Source): $($_.DisplayName) [$($_.MatchType)] -> $($_.ExpectedAction)" }) -join [Environment]::NewLine
     if ($toDelete.Count -gt 20) {
         $summary += [Environment]::NewLine + "... and $($toDelete.Count - 20) more"
     }
 
+    $entraWarning = if (@($toDelete | Where-Object { $_.Source -eq 'Entra ID Device' }).Count -gt 0) {
+        "`r`n`r`nWARNING: This plan deletes one or more Entra device identities."
+    }
+    else { '' }
+
     $confirmation = [System.Windows.Forms.MessageBox]::Show(
-        "This will permanently delete $($toDelete.Count) record(s):`r`n`r`n$summary`r`n`r`nContinue?",
+        "Safe cleanup order: Intune -> Autopilot -> Entra ID.`r`n`r`nThis will process $($toDelete.Count) record(s):`r`n`r`n$summary$entraWarning`r`n`r`nContinue?",
         'Confirm Bulk Removal',
         [System.Windows.Forms.MessageBoxButtons]::YesNo,
         [System.Windows.Forms.MessageBoxIcon]::Warning
@@ -2272,12 +2692,18 @@ $bulkRemoveAllButton.Add_Click({
     try {
         $form.UseWaitCursor = $true
         $bulkRemoveAllButton.Enabled = $false
+        $bulkRemoveSelectedButton.Enabled = $false
         $statusLabel.Text = "Status: Bulk removing $($toDelete.Count) record(s)..."
         $result = Invoke-RemovalPlan -Records $toDelete.ToArray() -LogTextBox $bulkLogTextBox
 
-        # Remove deleted items from bulk results list
+        $successfulKeys = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($successfulKey in $result.SuccessfulRecordKeys) {
+            [void]$successfulKeys.Add([string]$successfulKey)
+        }
+
+        # Keep failed and pending records visible so the operator can review or retry them.
         $remaining = $script:BulkAllResults | Where-Object {
-            $toDelete -notcontains $_
+            -not $successfulKeys.Contains("$($_.Source)|$($_.RecordId)")
         }
         $script:BulkAllResults.Clear()
         foreach ($r in $remaining) {
@@ -2286,11 +2712,16 @@ $bulkRemoveAllButton.Add_Click({
 
         Sync-GridData -Grid $bulkGrid -Records $script:BulkAllResults
         $bulkResultsLabel.Text = "Results: $($script:BulkAllResults.Count) record(s) remaining"
-        $bulkRemoveAllButton.Enabled = $script:BulkAllResults.Count -gt 0
-        $statusLabel.Text = "Status: Bulk removal done - deleted $($result.DeletedCount), failed $($result.FailedCount)"
-        Write-UiLog -TextBox $bulkLogTextBox -Message "Bulk removal complete. Deleted: $($result.DeletedCount), failed: $($result.FailedCount)."
-        [System.Windows.Forms.MessageBox]::Show("Bulk removal completed.`r`n`r`nDeleted: $($result.DeletedCount)`r`nFailed: $($result.FailedCount)", 'Bulk Removal Completed', 'OK', 'Information') | Out-Null
-        $bulkInputTextBox.Clear()
+        $exactRemainingCount = @($script:BulkAllResults | Where-Object { $_.MatchType -ne 'Partial' }).Count
+        $bulkRemoveAllButton.Enabled = $exactRemainingCount -gt 0
+        $bulkRemoveSelectedButton.Enabled = $script:BulkAllResults.Count -gt 0
+        $bulkExportPlanButton.Enabled = $script:BulkAllResults.Count -gt 0
+        $statusLabel.Text = "Status: Bulk done - deleted $($result.DeletedCount), pending $($result.PendingCount), failed $($result.FailedCount)"
+        Write-UiLog -TextBox $bulkLogTextBox -Message "Bulk removal complete. Deleted: $($result.DeletedCount), pending: $($result.PendingCount), failed: $($result.FailedCount)."
+        [System.Windows.Forms.MessageBox]::Show("Bulk removal completed.`r`n`r`nDeleted: $($result.DeletedCount)`r`nPending verification: $($result.PendingCount)`r`nFailed: $($result.FailedCount)`r`nSkipped: $($result.SkippedCount)", 'Bulk Removal Completed', 'OK', 'Information') | Out-Null
+        if (-not $script:BulkAllResults.Count) {
+            $bulkInputTextBox.Clear()
+        }
     }
     catch {
         Write-UiErrorDetail -TextBox $bulkLogTextBox -Prefix 'Bulk removal failed:' -ErrorRecord $_
@@ -2300,8 +2731,64 @@ $bulkRemoveAllButton.Add_Click({
     finally {
         $form.UseWaitCursor = $false
         if ($script:BulkAllResults.Count -gt 0) {
-            $bulkRemoveAllButton.Enabled = $true
+            $bulkRemoveSelectedButton.Enabled = $true
+            $bulkExportPlanButton.Enabled = $true
+            $bulkRemoveAllButton.Enabled = @($script:BulkAllResults | Where-Object { $_.MatchType -ne 'Partial' }).Count -gt 0
         }
+    }
+}
+
+$bulkRemoveAllButton.Add_Click({
+    & $invokeBulkRemoval -SelectedOnly $false
+})
+
+$bulkRemoveSelectedButton.Add_Click({
+    & $invokeBulkRemoval -SelectedOnly $true
+})
+
+$bulkExportPlanButton.Add_Click({
+    if (-not $script:BulkAllResults.Count) {
+        [System.Windows.Forms.MessageBox]::Show('Run a bulk search before exporting a dry-run plan.', 'Nothing To Export', 'OK', 'Information') | Out-Null
+        return
+    }
+
+    $sfd = New-Object System.Windows.Forms.SaveFileDialog
+    $sfd.Title = 'Export dry-run removal plan'
+    $sfd.Filter = 'CSV files (*.csv)|*.csv|All files (*.*)|*.*'
+    $sfd.FileName = "remove-device-dry-run-$(Get-Date -Format 'yyyyMMdd-HHmmss').csv"
+    if ($sfd.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+        return
+    }
+
+    try {
+        $planOrder = 0
+        $exportRows = foreach ($record in (Sort-RemovalPlan -Records $script:BulkAllResults)) {
+            $planOrder++
+            [PSCustomObject]@{
+                PlanOrder       = $planOrder
+                AutomaticallyEligible = ($record.MatchType -ne 'Partial')
+                InputTerm       = $record.InputTerm
+                MatchType       = $record.MatchType
+                Source          = $record.Source
+                DisplayName     = $record.DisplayName
+                SerialNumber    = $record.SerialNumber
+                OperatingSystem = $record.OperatingSystem
+                LastActivity    = $record.LastActivity
+                EnrollmentType  = $record.EnrollmentType
+                Ownership       = $record.Ownership
+                ExpectedAction  = $record.ExpectedAction
+                RecordId        = $record.RecordId
+                AzureDeviceId   = $record.AzureDeviceId
+            }
+        }
+
+        $exportRows | Export-Csv -Path $sfd.FileName -NoTypeInformation -Encoding UTF8
+        Write-UiLog -TextBox $bulkLogTextBox -Message "Dry-run plan exported to $($sfd.FileName)."
+        [System.Windows.Forms.MessageBox]::Show("Dry-run plan exported to:`r`n$($sfd.FileName)", 'Export Complete', 'OK', 'Information') | Out-Null
+    }
+    catch {
+        Write-UiErrorDetail -TextBox $bulkLogTextBox -Prefix 'Dry-run export failed:' -ErrorRecord $_
+        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Export Failed', 'OK', 'Error') | Out-Null
     }
 })
 
@@ -2313,11 +2800,13 @@ $bulkClearButton.Add_Click({
     Sync-GridData -Grid $bulkGrid -Records $null
     $bulkResultsLabel.Text = 'Results: search to populate'
     $bulkRemoveAllButton.Enabled = $false
+    $bulkRemoveSelectedButton.Enabled = $false
+    $bulkExportPlanButton.Enabled = $false
     $statusLabel.Text = 'Status: Bulk results cleared'
 })
 
 # Menu handlers
-$projectGitHubUrl = 'https://github.com/enginsoysal/'
+$projectGitHubUrl = 'https://github.com/enginsoysal/remove-device-everywhere'
 
 $fileLoadBulkInputMenuItem.Add_Click({
     $tabControl.SelectedTab = $tab2
@@ -2399,14 +2888,14 @@ $helpGithubMenuItem.Add_Click({
 $helpAboutMenuItem.Add_Click({
     $aboutText = @"
 Remove Device Everywhere
-Version: 1.0.0
+Version: $script:AppVersion
 
 Searches and removes device records across:
 - Intune Managed Devices
 - Entra ID Devices
 - Windows Autopilot
 
-Created for operational cleanup workflows.
+Safe Cleanup release for controlled operational device removal.
 "@
 
     [System.Windows.Forms.MessageBox]::Show(
@@ -2420,11 +2909,19 @@ Created for operational cleanup workflows.
 Sync-GridData -Grid $grid
 Sync-GridData -Grid $previewGrid -Records $null
 Write-UiLog -TextBox $logTextBox -Message 'Ready. Connect to Microsoft Graph, search by exact device name or serial number, then remove the records you select.'
+Write-UiLog -TextBox $logTextBox -Message 'Safe Cleanup v1.1 orders removals as Intune -> Autopilot -> Entra ID. Partial matches require explicit selection.'
+Write-UiLog -TextBox $logTextBox -Message 'Linked cleanup is off by default. Review Expected action because Intune delete can retire or wipe a managed device depending on enrollment type.'
 Write-UiLog -TextBox $logTextBox -Message 'This is a GUI app: terminal can remain empty while this window is open.'
 Write-UiLog -TextBox $logTextBox -Message 'Simple mode is active: Connect Graph uses popup sign-in (no terminal steps).'
 Write-UiLog -TextBox $logTextBox -Message 'Module bootstrap is non-interactive. If Microsoft.Graph.Authentication is missing, the script will install NuGet and the module automatically for the current user.'
 Write-UiLog -TextBox $logTextBox -Message "Audit log file: $script:AuditLogPath"
 Write-UiLog -TextBox $logTextBox -Message "Preferred Graph auth version for this host: $(if ($script:PreferredGraphAuthVersion) { $script:PreferredGraphAuthVersion } else { 'latest available' })"
+
+if ($SmokeTest) {
+    $form.Add_Shown({
+        $form.BeginInvoke([Action]{ $form.Close() }) | Out-Null
+    })
+}
 
 [void]$form.ShowDialog()
 #pragma warning restore PSUseApprovedVerbs
